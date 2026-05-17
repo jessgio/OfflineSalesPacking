@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, use } from "react";
 import { supabase } from "../../../lib/supabaseClient";
-import { ArrowLeft, CheckCircle2, AlertOctagon, ScanLine, Loader2, Clock, Calendar, Truck, Box, Search, Filter, AlertTriangle, Printer, RotateCcw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertOctagon, ScanLine, Loader2, Clock, Calendar, Truck, Box, Search, Filter, AlertTriangle, Printer, RotateCcw, UserCircle } from "lucide-react";
 import Link from "next/link";
 
 export default function PackStation(props: { params: Promise<{ id: string }> }) {
@@ -17,13 +17,25 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("status");
 
+  // PHASE 3: ACCOUNTABILITY STATES
+  const [packerName, setPackerName] = useState("");
+  const [isClaimed, setIsClaimed] = useState(false);
+  const claimInputRef = useRef<HTMLInputElement>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const loadData = async () => {
       const { data: poData } = await supabase.from("purchase_orders").select("*").eq("id", poId).single();
-      if (poData) setPo(poData);
+      if (poData) {
+        setPo(poData);
+        // If someone already claimed this PO earlier, unlock the station automatically
+        if (poData.packed_by && poData.packed_by !== 'Unassigned') {
+          setPackerName(poData.packed_by);
+          setIsClaimed(true);
+        }
+      }
 
       const { data: itemsData } = await supabase.from("po_items").select("*").eq("po_id", poId).order("id");
       if (itemsData) setItems(itemsData);
@@ -31,6 +43,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     loadData();
   }, [poId]);
 
+  // SMART FOCUS MANAGER
   useEffect(() => {
     const keepFocus = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -42,13 +55,22 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       ) {
         return; 
       }
-      inputRef.current?.focus();
+      // Depending on whether it's claimed or not, focus the right hidden input!
+      if (!isClaimed) {
+        claimInputRef.current?.focus();
+      } else {
+        inputRef.current?.focus(); 
+      }
     };
     
     document.addEventListener("click", keepFocus);
-    inputRef.current?.focus(); 
+    if (!isClaimed) {
+      claimInputRef.current?.focus();
+    } else {
+      inputRef.current?.focus(); 
+    }
     return () => document.removeEventListener("click", keepFocus);
-  }, []);
+  }, [isClaimed]);
 
   const playSound = (type: "success" | "error" | "complete") => {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -79,6 +101,22 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
+  // PHASE 3: CHECK-IN LOGIC
+  const handleClaimPO = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanedName = packerName.trim().toUpperCase();
+    if (!cleanedName || cleanedName.length < 2) {
+      playSound("error");
+      return;
+    }
+
+    // Save packer to database and unlock the screen
+    playSound("success");
+    await supabase.from("purchase_orders").update({ packed_by: cleanedName }).eq("id", poId);
+    setPo({ ...po, packed_by: cleanedName });
+    setIsClaimed(true);
+  };
+
   const processScanCode = async (scannedCode: string) => {
     if (!scannedCode) return;
     const itemIndex = items.findIndex((i) => i.barcode === scannedCode);
@@ -99,7 +137,8 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
     const timestamp = new Date().toISOString();
     const currentHistory = Array.isArray(item.scan_history) ? item.scan_history : [];
-    const newHistory = [...currentHistory, timestamp];
+    // Tag the specific packer's name inside the timestamp!
+    const newHistory = [...currentHistory, `${timestamp}|${packerName}`];
 
     const newScannedQty = item.scanned_qty + 1;
     const isNowComplete = newScannedQty === item.target_qty;
@@ -148,17 +187,14 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
     const updatedItems = items.map(i => i.id === itemId ? { ...i, is_short: true } : i);
     setItems(updatedItems);
-    
     await supabase.from("po_items").update({ is_short: true }).eq("id", itemId);
     setFeedback({ message: `⚠️ Marked as Shortage: ${productName}`, type: "error" });
     inputRef.current?.focus();
   };
 
-  // UNDO SHORTAGE LOGIC
   const handleUndoShortage = async (itemId: string, productName: string) => {
     const updatedItems = items.map(i => i.id === itemId ? { ...i, is_short: false } : i);
     setItems(updatedItems);
-    
     await supabase.from("po_items").update({ is_short: false }).eq("id", itemId);
     setFeedback({ message: `🔄 Shortage Reverted: Hand-scanner re-activated for ${productName}.`, type: "success" });
     
@@ -171,11 +207,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
   const handleFinishAndPrint = async () => {
     const hasShortages = items.some(i => i.is_short);
-    
-    await supabase.from("purchase_orders")
-      .update({ status: hasShortages ? "Partial Fulfillment" : "Completed" })
-      .eq("id", po.id);
-    
+    await supabase.from("purchase_orders").update({ status: hasShortages ? "Partial Fulfillment" : "Completed" }).eq("id", po.id);
     setPo({ ...po, status: hasShortages ? "Partial Fulfillment" : "Completed" });
     window.print();
   };
@@ -192,8 +224,47 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
   if (!po) return <div className="p-8 text-center text-gray-500 flex flex-col items-center justify-center min-h-screen"><Loader2 className="animate-spin w-8 h-8 mb-4 text-blue-500" /> Loading PO Data...</div>;
 
+  // -------------------------------------------------------------
+  // PHASE 3: THE LOCK SCREEN (Shows if no packer is assigned)
+  // -------------------------------------------------------------
+  if (!isClaimed) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-8 z-50 fixed inset-0">
+        <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-10 text-center animate-fade-in-up">
+          <div className="bg-blue-100 text-blue-600 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <UserCircle className="w-10 h-10" />
+          </div>
+          <h1 className="text-3xl font-black text-gray-900 mb-2">Check In</h1>
+          <p className="text-gray-500 font-medium mb-8">Scan your ID badge or type your initials to unlock this packing station.</p>
+          
+          <form onSubmit={handleClaimPO}>
+            <input 
+              ref={claimInputRef}
+              type="text" 
+              placeholder="e.g., ADITYA" 
+              value={packerName}
+              onChange={(e) => setPackerName(e.target.value)}
+              className="w-full text-center text-2xl font-bold uppercase tracking-widest border-2 border-gray-300 rounded-xl py-4 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition mb-6 text-slate-900"
+            />
+            <button 
+              type="submit" 
+              className="w-full bg-blue-600 text-white font-bold text-lg rounded-xl py-4 hover:bg-blue-700 transition shadow-lg shadow-blue-200"
+            >
+              Unlock Station
+            </button>
+          </form>
+          <div className="mt-6 border-t pt-6">
+             <Link href="/"><button className="text-gray-400 font-medium hover:text-gray-600">← Back to Dashboard</button></Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------- 
+  // THE ACTUAL PACKING APP (Unlocks once claimed)
+  // -------------------------------------------------------------
   let displayItems = [...items];
-  
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     displayItems = displayItems.filter(i => i.product_name.toLowerCase().includes(q) || i.barcode.includes(q));
@@ -202,10 +273,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   displayItems.sort((a, b) => {
     const aDone = a.scanned_qty >= a.target_qty || a.is_short;
     const bDone = b.scanned_qty >= b.target_qty || b.is_short;
-    if (sortBy === "status") {
-      if (aDone === bDone) return 0;
-      return aDone ? 1 : -1;
-    }
+    if (sortBy === "status") return aDone === bDone ? 0 : aDone ? 1 : -1;
     if (sortBy === "name-asc") return a.product_name.localeCompare(b.product_name);
     if (sortBy === "qty-desc") return b.target_qty - a.target_qty; 
     return 0; 
@@ -214,9 +282,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col pb-24 print:bg-white text-gray-900">
       
-      {/* ------------------------------------------------------------- 
-          THE APP VIEW (Hidden during PDF Print)
-      ------------------------------------------------------------- */}
       <div className="print:hidden">
         <form onSubmit={handleHiddenScan} className="opacity-0 absolute top-0 left-0">
           <input ref={inputRef} type="text" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} autoFocus />
@@ -235,6 +300,8 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                 <span className="text-blue-700 font-bold">{po.retailer_name}</span>
                 <span className="flex items-center gap-1.5 text-gray-500 ml-4 border-l pl-4"><Calendar className="w-4 h-4" /> Received: {po.po_date}</span>
                 <span className="flex items-center gap-1.5 text-red-600 font-bold border-l pl-4"><Truck className="w-4 h-4" /> Deadline: {po.delivery_date}</span>
+                {/* NEW PHASE 3 HEADER: Show who is actively logged into this PO */}
+                <span className="flex items-center gap-1.5 text-green-600 bg-green-50 px-2 py-1 rounded ml-4 border border-green-200 font-bold"><UserCircle className="w-4 h-4" /> Packer: {packerName}</span>
               </div>
             </div>
           </div>
@@ -257,11 +324,8 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
             <div className="bg-green-50 border-2 border-green-500 p-8 rounded-xl shadow-lg text-center animate-fade-in-up">
               <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
               <h2 className="text-3xl font-black text-green-900 mb-2">Order Fully Verified</h2>
-              <p className="text-green-700 font-medium mb-6">All physical scans have been reconciled with the database.</p>
-              <button 
-                onClick={handleFinishAndPrint}
-                className="bg-green-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-green-700 transition flex items-center gap-3 justify-center w-full max-w-md mx-auto shadow-md"
-              >
+              <p className="text-green-700 font-medium mb-6">Packed perfectly by <strong>{packerName}</strong>.</p>
+              <button onClick={handleFinishAndPrint} className="bg-green-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-green-700 transition flex items-center gap-3 justify-center w-full max-w-md mx-auto shadow-md">
                 <Printer className="w-6 h-6" /> Finish & Print Packing Slip
               </button>
             </div>
@@ -299,7 +363,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                   <th className="p-4 w-12 text-center">Status</th>
                   <th className="p-4">Product Name</th>
                   <th className="p-4 w-40">Barcode</th>
-                  <th className="p-4 w-32 text-center text-orange-600 bg-orange-50"><div className="flex items-center justify-center gap-1"><Box className="w-4 h-4"/> Inner Boxes</div></th>
+                  <th className="p-4 w-32 text-center text-orange-600 bg-orange-50"><div className="flex items-center justify-center gap-1"><Box className="w-4 h-4"/> Inner</div></th>
                   <th className="p-4 w-40 text-center">Units Packed</th>
                 </tr>
               </thead>
@@ -307,10 +371,14 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                 {displayItems.map((item) => {
                   const done = item.scanned_qty >= item.target_qty || item.is_short;
                   const isComplete = item.scanned_qty >= item.target_qty;
-                  const isShort = item.is_short && !isComplete; // Logic fix: Only show short if not strictly complete
+                  const isShort = item.is_short && !isComplete; 
                   const progress = item.target_qty === 0 ? 0 : (item.scanned_qty / item.target_qty) * 100;
                   const historyArray = Array.isArray(item.scan_history) ? item.scan_history : [];
-                  const lastScanTime = historyArray.length > 0 ? historyArray[historyArray.length - 1] : null;
+                  
+                  // Phase 3: We appended the packer name to the timestamp (e.g., "2023...10Z|JOHN")
+                  const lastScanRaw = historyArray.length > 0 ? historyArray[historyArray.length - 1] : null;
+                  const lastScanTime = lastScanRaw ? lastScanRaw.split('|')[0] : null;
+                  const lastPacker = lastScanRaw && lastScanRaw.split('|').length > 1 ? lastScanRaw.split('|')[1] : null;
 
                   return (
                     <tr key={item.id} className={`border-b transition-colors ${isComplete ? 'bg-green-50/50' : isShort ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
@@ -326,11 +394,10 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                         <div className="flex items-center gap-4 mt-1">
                           {lastScanTime && (
                             <span className="flex items-center gap-1 text-xs text-gray-400 font-medium">
-                              <Clock className="w-3 h-3" /> Last scanned: {formatTime(lastScanTime)}
+                              <Clock className="w-3 h-3" /> {formatTime(lastScanTime)} {lastPacker && `(by ${lastPacker})`}
                             </span>
                           )}
 
-                          {/* SHORTAGE ACTION LINKS CONFIGURED PROPERLY */}
                           {!done && (
                             <button onClick={() => handleMarkShortage(item.id, item.product_name)} className="text-amber-600 hover:text-amber-800 text-xs font-bold uppercase underline transition">
                               Report Shortage
@@ -376,7 +443,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       </div>
 
       {/* ------------------------------------------------------------- 
-          THE PDF PRINT VIEW (Invisible until printed)
+          THE PDF PRINT VIEW
       ------------------------------------------------------------- */}
       <div className="hidden print:block p-8 bg-white text-black font-sans w-full">
         <div className="flex justify-between items-end border-b-2 border-black pb-4 mb-6">
@@ -390,7 +457,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6 mb-8 bg-gray-100 p-4 rounded-lg border border-gray-300">
+        <div className="grid grid-cols-4 gap-6 mb-8 bg-gray-100 p-4 rounded-lg border border-gray-300">
            <div>
              <p className="text-xs font-bold text-gray-500 uppercase">PO Date</p>
              <p className="font-semibold text-lg">{po.po_date}</p>
@@ -400,8 +467,12 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
              <p className="font-semibold text-lg">{po.delivery_date}</p>
            </div>
            <div>
+             <p className="text-xs font-bold text-gray-500 uppercase">Packed By</p>
+             <p className="font-bold text-lg text-blue-800 uppercase">{packerName}</p>
+           </div>
+           <div>
              <p className="text-xs font-bold text-gray-500 uppercase">Print Timestamp</p>
-             <p className="font-semibold text-lg">{new Date().toLocaleString()}</p>
+             <p className="font-semibold text-sm">{new Date().toLocaleString()}</p>
            </div>
         </div>
 
@@ -433,10 +504,10 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           </tbody>
         </table>
 
-        <div className="flex justify-between items-center pt-12">
+        <div className="flex justify-between items-center pt-12 mt-12 border-t-2 border-dashed border-gray-400">
           <div className="text-center">
-            <div className="border-b border-black w-64 mb-2"></div>
-            <p className="font-bold text-xs uppercase text-gray-600">Warehouse Packer Signature</p>
+            <div className="border-b-2 font-black text-2xl border-black w-64 pb-2 mb-2">{packerName}</div>
+            <p className="font-bold text-xs uppercase text-gray-600">Employee Digital Signature</p>
           </div>
           <div className="text-center flex-1 ml-12">
             <p className="font-black text-2xl tracking-widest opacity-20">AERIS BEAUTE VERIFIED</p>
