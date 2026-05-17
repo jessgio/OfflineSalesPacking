@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, use } from "react";
 import { supabase } from "../../../lib/supabaseClient";
-import { ArrowLeft, CheckCircle2, AlertOctagon, ScanLine, Loader2, Clock, Calendar, Truck, Box, Search, Filter, AlertTriangle, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertOctagon, ScanLine, Loader2, Clock, Calendar, Truck, Box, Search, Filter, AlertTriangle, Printer, RotateCcw } from "lucide-react";
 import Link from "next/link";
 
 export default function PackStation(props: { params: Promise<{ id: string }> }) {
@@ -154,6 +154,21 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     inputRef.current?.focus();
   };
 
+  // UNDO SHORTAGE LOGIC
+  const handleUndoShortage = async (itemId: string, productName: string) => {
+    const updatedItems = items.map(i => i.id === itemId ? { ...i, is_short: false } : i);
+    setItems(updatedItems);
+    
+    await supabase.from("po_items").update({ is_short: false }).eq("id", itemId);
+    setFeedback({ message: `🔄 Shortage Reverted: Hand-scanner re-activated for ${productName}.`, type: "success" });
+    
+    if (po && (po.status === "Completed" || po.status === "Partial Fulfillment")) {
+      await supabase.from("purchase_orders").update({ status: "Packing" }).eq("id", po.id);
+      setPo({ ...po, status: "Packing" });
+    }
+    inputRef.current?.focus();
+  };
+
   const handleFinishAndPrint = async () => {
     const hasShortages = items.some(i => i.is_short);
     
@@ -284,15 +299,15 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                   <th className="p-4 w-12 text-center">Status</th>
                   <th className="p-4">Product Name</th>
                   <th className="p-4 w-40">Barcode</th>
-                  <th className="p-4 w-32 text-center text-orange-600 bg-orange-50"><div className="flex items-center justify-center gap-1"><Box className="w-4 h-4"/> Inner</div></th>
+                  <th className="p-4 w-32 text-center text-orange-600 bg-orange-50"><div className="flex items-center justify-center gap-1"><Box className="w-4 h-4"/> Inner Boxes</div></th>
                   <th className="p-4 w-40 text-center">Units Packed</th>
                 </tr>
               </thead>
               <tbody>
                 {displayItems.map((item) => {
+                  const done = item.scanned_qty >= item.target_qty || item.is_short;
                   const isComplete = item.scanned_qty >= item.target_qty;
-                  const isShort = item.is_short;
-                  const done = isComplete || isShort;
+                  const isShort = item.is_short && !isComplete; // Logic fix: Only show short if not strictly complete
                   const progress = item.target_qty === 0 ? 0 : (item.scanned_qty / item.target_qty) * 100;
                   const historyArray = Array.isArray(item.scan_history) ? item.scan_history : [];
                   const lastScanTime = historyArray.length > 0 ? historyArray[historyArray.length - 1] : null;
@@ -314,15 +329,23 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                               <Clock className="w-3 h-3" /> Last scanned: {formatTime(lastScanTime)}
                             </span>
                           )}
+
+                          {/* SHORTAGE ACTION LINKS CONFIGURED PROPERLY */}
                           {!done && (
-                            <button 
-                              onClick={() => handleMarkShortage(item.id, item.product_name)}
-                              className="text-amber-600 hover:text-amber-800 text-xs font-bold uppercase underline"
-                            >
+                            <button onClick={() => handleMarkShortage(item.id, item.product_name)} className="text-amber-600 hover:text-amber-800 text-xs font-bold uppercase underline transition">
                               Report Shortage
                             </button>
                           )}
-                          {isShort && <span className="text-amber-600 text-xs font-bold uppercase bg-amber-100 px-2 py-0.5 rounded">Short-Shipped</span>}
+                          {isShort && (
+                            <div className="flex items-center gap-3">
+                              <span className="text-amber-600 text-[10px] font-bold uppercase bg-amber-100 px-2 py-0.5 rounded flex items-center border border-amber-200">
+                                <AlertTriangle className="w-3 h-3 mr-1"/> Short-Shipped
+                              </span>
+                              <button onClick={() => handleUndoShortage(item.id, item.product_name)} className="text-gray-500 hover:text-gray-900 text-xs font-bold uppercase flex items-center gap-1 transition pr-2">
+                                <RotateCcw className="w-3 h-3" /> UNDO
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {!done && (
@@ -356,8 +379,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           THE PDF PRINT VIEW (Invisible until printed)
       ------------------------------------------------------------- */}
       <div className="hidden print:block p-8 bg-white text-black font-sans w-full">
-        
-        {/* Print Header */}
         <div className="flex justify-between items-end border-b-2 border-black pb-4 mb-6">
           <div>
             <h1 className="text-4xl font-black tracking-tighter mb-1">AERIS BEAUTE</h1>
@@ -369,7 +390,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           </div>
         </div>
 
-        {/* Print Meta Grid */}
         <div className="grid grid-cols-3 gap-6 mb-8 bg-gray-100 p-4 rounded-lg border border-gray-300">
            <div>
              <p className="text-xs font-bold text-gray-500 uppercase">PO Date</p>
@@ -385,13 +405,11 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
            </div>
         </div>
 
-        {/* Print Table */}
         <table className="w-full text-left border-collapse border border-black mb-12">
           <thead>
             <tr className="bg-gray-100 border-black border-b-2">
               <th className="p-3 border-r border-black font-bold uppercase text-xs">Barcode</th>
               <th className="p-3 border-r border-black font-bold uppercase text-xs">Product Description</th>
-              {/* NEW PRINT COLUMN: Inner Boxes */}
               <th className="p-3 border-r border-black font-bold text-center uppercase text-xs">Inner Boxes</th>
               <th className="p-3 border-r border-black font-bold text-center uppercase text-xs">Request Qty</th>
               <th className="p-3 border-r border-black font-bold text-center uppercase text-xs">Packed Qty</th>
@@ -403,7 +421,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
               <tr key={item.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-b border-gray-300`}>
                 <td className="p-3 border-r border-black font-mono text-xs">{item.barcode}</td>
                 <td className="p-3 border-r border-black text-sm font-medium">{item.product_name}</td>
-                {/* NEW PRINT DATA: Inner Boxes */}
                 <td className="p-3 border-r border-black text-center font-bold text-gray-800">{item.inner_boxes}</td>
                 <td className="p-3 border-r border-black text-center font-semibold">{item.target_qty}</td>
                 <td className="p-3 border-r border-black text-center font-bold">{item.scanned_qty}</td>
@@ -416,7 +433,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           </tbody>
         </table>
 
-        {/* Print Footer / Signatures */}
         <div className="flex justify-between items-center pt-12">
           <div className="text-center">
             <div className="border-b border-black w-64 mb-2"></div>

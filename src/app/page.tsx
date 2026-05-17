@@ -9,7 +9,6 @@ export default function ManagerDashboard() {
   const [pos, setPos] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
-  
   const [selectedPOs, setSelectedPOs] = useState<string[]>([]);
 
   useEffect(() => {
@@ -37,9 +36,10 @@ export default function ManagerDashboard() {
   };
 
   const formatErpDate = (raw: string) => {
+    if (!raw) return "";
     const d = raw.replace(/\D/g, '');
     if (d.length === 8) return `${d.substring(0,4)}-${d.substring(4,6)}-${d.substring(6,8)}`;
-    return raw;
+    return raw.substring(0, 15); // Fallback for normal dates
   };
 
   const togglePoSelection = (id: string) => {
@@ -63,11 +63,7 @@ export default function ManagerDashboard() {
       const poDate = posToMerge[0].po_date;
       const deliveryDate = posToMerge[0].delivery_date;
 
-      const { data: allItems, error: itemsError } = await supabase
-        .from("po_items")
-        .select("*")
-        .in("po_id", selectedPOs);
-
+      const { data: allItems, error: itemsError } = await supabase.from("po_items").select("*").in("po_id", selectedPOs);
       if (itemsError) throw itemsError;
 
       const mergedItemsMap: Record<string, any> = {};
@@ -75,12 +71,7 @@ export default function ManagerDashboard() {
       allItems.forEach((item: any) => {
         if (!mergedItemsMap[item.barcode]) {
           mergedItemsMap[item.barcode] = {
-            barcode: item.barcode,
-            product_name: item.product_name,
-            target_qty: 0,
-            inner_boxes: 0,
-            scanned_qty: 0,
-            scan_history: []
+            barcode: item.barcode, product_name: item.product_name, target_qty: 0, inner_boxes: 0, scanned_qty: 0, scan_history: []
           };
         }
         mergedItemsMap[item.barcode].target_qty += item.target_qty;
@@ -97,26 +88,13 @@ export default function ManagerDashboard() {
 
       const newPoName = `MERGED: ${combinedNumbers}`.substring(0, 200); 
       
-      const { data: newPo, error: newPoError } = await supabase
-        .from("purchase_orders")
-        .insert([{
-          po_number: newPoName,
-          retailer_name: retailer,
-          po_date: poDate,
-          delivery_date: deliveryDate,
-          total_items: totalCombinedItems,
-          status: hasStartedPacking ? "Packing" : "Not Started"
-        }])
-        .select()
-        .single();
+      const { data: newPo, error: newPoError } = await supabase.from("purchase_orders").insert([{
+        po_number: newPoName, retailer_name: retailer, po_date: poDate, delivery_date: deliveryDate, total_items: totalCombinedItems, status: hasStartedPacking ? "Packing" : "Not Started"
+      }]).select().single();
 
       if (newPoError) throw newPoError;
 
-      const itemsToInsert = mergedItemsArray.map((item: any) => ({
-        ...item,
-        po_id: newPo.id
-      }));
-
+      const itemsToInsert = mergedItemsArray.map((item: any) => ({ ...item, po_id: newPo.id }));
       const { error: insertError } = await supabase.from("po_items").insert(itemsToInsert);
       if (insertError) throw insertError;
 
@@ -124,9 +102,7 @@ export default function ManagerDashboard() {
       if (deleteError) throw deleteError;
 
       setMessage({ text: `Successfully merged into 1 MASTER PO!`, type: "success" });
-      setSelectedPOs([]); 
-      fetchPOs(); 
-
+      setSelectedPOs([]); fetchPOs(); 
     } catch (error: any) {
       setMessage({ text: error.message || "Failed to merge POs.", type: "error" });
     } finally {
@@ -139,63 +115,103 @@ export default function ManagerDashboard() {
     if (!file) return;
 
     setUploading(true);
-    setMessage({ text: "Slicing Aeris ERP Export...", type: "info" });
+    setMessage({ text: "Universal Engine Scanning File...", type: "info" });
 
     try {
       let text = await file.text();
       text = text.replace(/^\uFEFF/, ''); 
-      const lines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
+      const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
-      const headerLine = lines[0];
-      const rawHeaders = headerLine.split(/",""|,""|"",|","/);
-      
-      // FIXED TYPE ERRORS (Added :string)
-      const headers = rawHeaders.map((h: string) => h.replace(/"/g, '').trim());
+      // 1. Universal Grid Constructor 
+      const grid = rawLines.map((line: string) => {
+        if (line.includes('",""')) {
+          return line.split(/",""|,""|"",|","/).map((c: string) => c.replace(/"/g, '').trim());
+        }
+        const delimiter = line.includes(';') ? ';' : ',';
+        const cols: string[] = [];
+        let inQuotes = false;
+        let currentWord = "";
+        for (let i = 0; i < line.length; i++) {
+          let char = line[i];
+          if (char === '"') { inQuotes = !inQuotes; continue; }
+          if (char === delimiter && !inQuotes) { cols.push(currentWord.trim()); currentWord = ""; continue; }
+          currentWord += char;
+        }
+        cols.push(currentWord.trim());
+        return cols;
+      });
 
-      const iPo = headers.findIndex((h: string) => h.includes('PO Number'));
-      const iBuyer = headers.findIndex((h: string) => h.includes('Buyer Name'));
-      const iPlu = headers.findIndex((h: string) => h.includes('Code - PLU'));
-      const iDesc = headers.findIndex((h: string) => h.includes('Product Description'));
-      const iQty = headers.findIndex((h: string) => h.includes('Order Quantity'));
-      const iPackQty = headers.findIndex((h: string) => h.includes('Pack Quantity'));
-      const iPoDate = headers.findIndex((h: string) => h.includes('PO Date'));
-      const iDelivDate = headers.findIndex((h: string) => h.includes('Delivery Date'));
+      // 2. Fuzzy Dictionary Setup
+      const matchAlias = (val: string, aliases: string[]) => {
+        const cleanVal = val.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return aliases.some(alias => cleanVal.includes(alias.replace(/[^a-z0-9]/g, '')));
+      };
 
-      if (iPlu === -1) throw new Error("CRITICAL: 'Code - PLU' not found.");
+      let hRow = -1;
+      let colMap = { po: -1, buyer: -1, barcode: -1, desc: -1, qty: -1, pack: -1, poDate: -1, delDate: -1 };
+
+      let globalPoNum = "";
+      let globalBuyer = "";
+      let globalPoDate = "";
+      let globalDelDate = "";
+
+      for (let i = 0; i < Math.min(grid.length, 30); i++) {
+        const row = grid[i];
+
+        // ADDED STRICT TYPES HERE (cell: string, cellIdx: number)
+        row.forEach((cell: string, cellIdx: number) => {
+          const lower = cell.toLowerCase();
+          if (!globalPoNum && (lower.includes('po number') || lower === 'po')) globalPoNum = row[cellIdx + 1] || "";
+          if (!globalBuyer && (lower.includes('buyer') || lower.includes('retailer'))) globalBuyer = row[cellIdx + 1] || "";
+        });
+
+        // ADDED STRICT TYPES HERE (c: string)
+        const barcodeIdx = row.findIndex((c: string) => matchAlias(c, ['barcode', 'plu', 'upc', 'ean', 'sku']));
+        const qtyIdx = row.findIndex((c: string) => matchAlias(c, ['orderquantity', 'qty', 'quantity', 'amount']));
+
+        if (barcodeIdx !== -1 && qtyIdx !== -1) {
+          hRow = i; 
+          colMap.barcode = barcodeIdx;
+          colMap.qty = qtyIdx;
+          colMap.desc = row.findIndex((c: string) => matchAlias(c, ['description', 'name', 'product', 'item']));
+          colMap.pack = row.findIndex((c: string) => matchAlias(c, ['pack', 'inner', 'caseqty']));
+          colMap.po = row.findIndex((c: string) => matchAlias(c, ['ponumber', 'purchaseorder', 'orderid']));
+          colMap.buyer = row.findIndex((c: string) => matchAlias(c, ['buyer', 'retailer', 'store', 'customer']));
+          colMap.poDate = row.findIndex((c: string) => matchAlias(c, ['podate', 'orderdate', 'date']));
+          colMap.delDate = row.findIndex((c: string) => matchAlias(c, ['delivery', 'deadline', 'shipdate']));
+          break;
+        }
+      }
+
+      if (hRow === -1 || colMap.barcode === -1) {
+        throw new Error("Analyzer could not find a Barcode or Quantity column on this file.");
+      }
 
       const parsedItems: any[] = [];
-      let globalPoNumber = "Unknown PO";
-      let globalBuyerName = "Aeris Retailer";
-      let globalPoDate = "";
-      let globalDelivDate = "";
-
-      for (let i = 1; i < lines.length; i++) {
-        const rowLine = lines[i];
-        const rawCols = rowLine.split(/",""|,""|"",|","/);
+      
+      for (let i = hRow + 1; i < grid.length; i++) {
+        const cols = grid[i];
+        const barcode = cols[colMap.barcode];
         
-        // FIXED TYPE ERRORS (Added :string)
-        const cols = rawCols.map((c: string) => c.replace(/"/g, '').trim());
-
-        const barcode = cols[iPlu];
         if (!barcode || barcode.length < 5) continue;
 
-        if (globalPoNumber === "Unknown PO" && iPo !== -1 && cols[iPo]) globalPoNumber = cols[iPo];
-        if (globalBuyerName === "Aeris Retailer" && iBuyer !== -1 && cols[iBuyer]) globalBuyerName = cols[iBuyer];
-        if (!globalPoDate && iPoDate !== -1 && cols[iPoDate]) globalPoDate = formatErpDate(cols[iPoDate]);
-        if (!globalDelivDate && iDelivDate !== -1 && cols[iDelivDate]) globalDelivDate = formatErpDate(cols[iDelivDate]);
+        if (!globalPoNum && colMap.po !== -1 && cols[colMap.po]) globalPoNum = cols[colMap.po];
+        if (!globalBuyer && colMap.buyer !== -1 && cols[colMap.buyer]) globalBuyer = cols[colMap.buyer];
+        if (!globalPoDate && colMap.poDate !== -1 && cols[colMap.poDate]) globalPoDate = formatErpDate(cols[colMap.poDate]);
+        if (!globalDelDate && colMap.delDate !== -1 && cols[colMap.delDate]) globalDelDate = formatErpDate(cols[colMap.delDate]);
 
-        const orderQty = iQty !== -1 ? parseInt(cols[iQty], 10) || 0 : 0;
-        const packQty = iPackQty !== -1 ? parseInt(cols[iPackQty], 10) || 1 : 1; 
+        const orderQty = colMap.qty !== -1 ? parseInt(cols[colMap.qty], 10) || 0 : 0;
+        const packQty = colMap.pack !== -1 ? parseInt(cols[colMap.pack], 10) || 1 : 1; 
 
         parsedItems.push({
           barcode: barcode,
-          productName: iDesc !== -1 ? cols[iDesc] : "Aeris SKU",
+          productName: colMap.desc !== -1 ? cols[colMap.desc] : "Aeris SKU",
           innerBoxes: orderQty, 
           targetQty: orderQty * packQty 
         });
       }
 
-      if (parsedItems.length === 0) throw new Error("Could not detect any line items.");
+      if (parsedItems.length === 0) throw new Error("Could not detect any line items under the headers.");
 
       setMessage({ text: "Cross-referencing Master Catalog...", type: "info" });
       const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
@@ -211,10 +227,10 @@ export default function ManagerDashboard() {
       const { data: poData, error: poError } = await supabase
         .from("purchase_orders")
         .insert([{ 
-            po_number: globalPoNumber, 
-            retailer_name: globalBuyerName,
+            po_number: globalPoNum || `PO-${Math.floor(Math.random()*10000)}`, 
+            retailer_name: globalBuyer || "Retailer Partner",
             po_date: globalPoDate || 'N/A',
-            delivery_date: globalDelivDate || 'N/A',
+            delivery_date: globalDelDate || 'N/A',
             total_items: totalItems,
             status: "Not Started" 
         }])
@@ -236,11 +252,12 @@ export default function ManagerDashboard() {
       const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      setMessage({ text: `Success! PO ${globalPoNumber} added.`, type: "success" });
+      setMessage({ text: `Success! PO ${poData.po_number} uploaded completely.`, type: "success" });
       fetchPOs(); 
       event.target.value = null; 
 
     } catch (error: any) {
+      console.error(error);
       setMessage({ text: error.message, type: "error" });
     } finally {
       setUploading(false);
@@ -266,12 +283,12 @@ export default function ManagerDashboard() {
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600">
                 <Loader2 className="animate-spin w-8 h-8 mb-2" />
-                <span className="font-semibold">Processing Data...</span>
+                <span className="font-semibold">Smart Parsing Data...</span>
               </div>
             ) : (
               <div>
                 <p className="font-semibold text-lg text-gray-700">Click or Drag File here</p>
-                <p className="text-sm text-gray-500 mt-1">Auto-corrects malformed Aeris ERP output</p>
+                <p className="text-sm text-gray-500 mt-1">Universal Engine: Accepts ANY Retailer CSV Format</p>
               </div>
             )}
           </div>
