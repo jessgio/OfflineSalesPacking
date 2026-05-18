@@ -115,76 +115,77 @@ export default function ManagerDashboard() {
     if (!file) return;
 
     setUploading(true);
-    setMessage({ text: "Initializing Bulletproof CSV Extraction...", type: "info" });
+    setMessage({ text: "Smart Mapping Columns...", type: "info" });
 
     try {
       let text = await file.text();
       text = text.replace(/^\uFEFF/, ''); 
+      const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
-      // 1. BULLETPROOF NATIVE CSV PARSER (Ignores internal commas safely)
-      const parseCSV = (str: string) => {
-          const arr: string[][] = [];
-          let quote = false;
-          let row = 0, col = 0;
-          for (let c = 0; c < str.length; c++) {
-              let cc = str[c], nc = str[c+1];
-              arr[row] = arr[row] || [];
-              arr[row][col] = arr[row][col] || '';
+      const firstLine = rawLines[0] || "";
+      const isAerisERP = firstLine.includes('",""') || firstLine.includes('","');
 
-              if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }  
-              if (cc === '"') { quote = !quote; continue; }
-              if (cc === ',' && !quote) { ++col; continue; }
-              if ((cc === '\r' && nc === '\n') && !quote) { ++row; col = 0; ++c; continue; }
-              if ((cc === '\n' || cc === '\r') && !quote) { ++row; col = 0; continue; }
-              
-              arr[row][col] += cc;
-          }
-          return arr.map(r => r.map(c => c.trim().replace(/^"+|"+$/g, '')));
-      };
+      const grid = rawLines.map((line: string) => {
+        if (isAerisERP) {
+          return line.split(/",""|,""|"",|","/).map((c: string) => c.replace(/"/g, '').trim());
+        }
+        
+        const delimiter = line.includes(';') ? ';' : ',';
+        const cols: string[] = [];
+        let inQuotes = false;
+        let currentWord = "";
+        for (let i = 0; i < line.length; i++) {
+          let char = line[i];
+          if (char === '"') { inQuotes = !inQuotes; continue; }
+          if (char === delimiter && !inQuotes) { cols.push(currentWord.trim()); currentWord = ""; continue; }
+          currentWord += char;
+        }
+        cols.push(currentWord.trim());
+        return cols;
+      });
 
-      let grid = parseCSV(text);
-      grid = grid.filter(row => row.join('').trim().length > 0);
-
-      // 2. SMARTER FUZZY DICTIONARY (With Exclusion abilities)
-      const matchAlias = (val: string, aliases: string[], exclude: string[] = []) => {
-        if (!val) return false;
-        const cleanVal = val.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (exclude.some(ex => cleanVal.includes(ex))) return false;
-        return aliases.some(alias => cleanVal.includes(alias.replace(/[^a-z0-9]/g, '')));
+      // SMART ALIAS FINDER: Checks for EXACT string matches before allowing fuzzy partial matches!
+      const findColumnIndex = (row: string[], aliases: string[], exclude: string[] = []) => {
+        // 1. Strict Exact Match (e.g. "deliverydate" !== "deliverytocode")
+        for (let alias of aliases) {
+          const exactIdx = row.findIndex((c: string) => {
+             const cleanC = c.toLowerCase().replace(/[^a-z0-9]/g, '');
+             return cleanC === alias.replace(/[^a-z0-9]/g, '') && !exclude.some(ex => cleanC.includes(ex));
+          });
+          if (exactIdx !== -1) return exactIdx;
+        }
+        // 2. Fuzzy Partial Match Fail-safe
+        for (let alias of aliases) {
+          const partialIdx = row.findIndex((c: string) => {
+             const cleanC = c.toLowerCase().replace(/[^a-z0-9]/g, '');
+             return cleanC.includes(alias.replace(/[^a-z0-9]/g, '')) && !exclude.some(ex => cleanC.includes(ex));
+          });
+          if (partialIdx !== -1) return partialIdx;
+        }
+        return -1;
       };
 
       let hRow = -1;
       let colMap = { po: -1, buyer: -1, barcode: -1, desc: -1, qty: -1, pack: -1, poDate: -1, delDate: -1 };
 
-      let globalPoNum = "";
-      let globalBuyer = "";
-      let globalPoDate = "";
-      let globalDelDate = "";
-
       for (let i = 0; i < Math.min(grid.length, 30); i++) {
         const row = grid[i];
 
-        row.forEach((cell: string, cellIdx: number) => {
-          if (!cell) return;
-          const lower = cell.toLowerCase();
-          if (!globalPoNum && (lower.includes('po number') || lower === 'po')) globalPoNum = row[cellIdx + 1] || "";
-          if (!globalBuyer && (lower.includes('buyer') || lower.includes('retailer'))) globalBuyer = row[cellIdx + 1] || "";
-        });
-
-        const barcodeIdx = row.findIndex((c: string) => matchAlias(c, ['barcode', 'plu', 'upc', 'ean', 'sku']));
-        // EXCLUSION FIX: Look for Quantity, but IGNORE columns that say "Pack"
-        const qtyIdx = row.findIndex((c: string) => matchAlias(c, ['orderquantity', 'order', 'qty', 'quantity', 'amount'], ['pack', 'inner']));
+        const barcodeIdx = findColumnIndex(row, ['codeplu', 'barcode', 'plu', 'upc', 'ean', 'sku']);
+        const qtyIdx = findColumnIndex(row, ['orderquantity', 'qty', 'quantity', 'amount'], ['pack', 'inner']);
 
         if (barcodeIdx !== -1 && qtyIdx !== -1) {
           hRow = i; 
           colMap.barcode = barcodeIdx;
           colMap.qty = qtyIdx;
-          colMap.desc = row.findIndex((c: string) => matchAlias(c, ['description', 'name', 'product', 'item']));
-          colMap.pack = row.findIndex((c: string) => matchAlias(c, ['packquantity', 'pack', 'inner', 'caseqty']));
-          colMap.po = row.findIndex((c: string) => matchAlias(c, ['ponumber', 'purchaseorder', 'orderid']));
-          colMap.buyer = row.findIndex((c: string) => matchAlias(c, ['buyer', 'retailer', 'store', 'customer']));
-          colMap.poDate = row.findIndex((c: string) => matchAlias(c, ['podate', 'orderdate', 'date']));
-          colMap.delDate = row.findIndex((c: string) => matchAlias(c, ['delivery', 'deadline', 'shipdate']));
+          colMap.desc = findColumnIndex(row, ['productdescription', 'description', 'name', 'product', 'item']);
+          colMap.pack = findColumnIndex(row, ['packquantity', 'pack', 'inner', 'caseqty']);
+          
+          // PRECISE MAPPING to prevent getting hijacked by similar words
+          colMap.po = findColumnIndex(row, ['ponumber', 'purchaseorder', 'orderid']);
+          colMap.poDate = findColumnIndex(row, ['podate', 'orderdate']);
+          colMap.buyer = findColumnIndex(row, ['buyername', 'retailername', 'storename', 'buyer']);
+          colMap.delDate = findColumnIndex(row, ['deliverydate', 'deadline', 'shipdate', 'delivery']);
           break;
         }
       }
@@ -194,13 +195,18 @@ export default function ManagerDashboard() {
       }
 
       const parsedItems: any[] = [];
+      let globalPoNum = "";
+      let globalBuyer = "";
+      let globalPoDate = "";
+      let globalDelDate = "";
       
       for (let i = hRow + 1; i < grid.length; i++) {
         const cols = grid[i];
         const barcode = cols[colMap.barcode];
         
-        if (!barcode || barcode.length < 5) continue;
+        if (!barcode || barcode.length < 4) continue;
 
+        // Grab global stats from the VERY FIRST valid row, and then lock them!
         if (!globalPoNum && colMap.po !== -1 && cols[colMap.po]) globalPoNum = cols[colMap.po];
         if (!globalBuyer && colMap.buyer !== -1 && cols[colMap.buyer]) globalBuyer = cols[colMap.buyer];
         if (!globalPoDate && colMap.poDate !== -1 && cols[colMap.poDate]) globalPoDate = formatErpDate(cols[colMap.poDate]);
@@ -218,8 +224,7 @@ export default function ManagerDashboard() {
       }
 
       if (parsedItems.length === 0) {
-        const debugCols = `Barcode(${colMap.barcode}) / OrderQty(${colMap.qty}) / PackQty(${colMap.pack}). Row Data: [${grid[hRow + 1]?.join(', ')}]`;
-        throw new Error(`Data Mapping Error. Engine Diagnostics: ${debugCols}`);
+        throw new Error(`Data Mapping Error. Check columns!`);
       }
 
       setMessage({ text: "Cross-referencing Master Catalog...", type: "info" });
@@ -292,7 +297,7 @@ export default function ManagerDashboard() {
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600">
                 <Loader2 className="animate-spin w-8 h-8 mb-2" />
-                <span className="font-semibold">Structuring Core Data...</span>
+                <span className="font-semibold">Smart Parsing Data...</span>
               </div>
             ) : (
               <div>
