@@ -39,7 +39,7 @@ export default function ManagerDashboard() {
     if (!raw) return "";
     const d = raw.replace(/\D/g, '');
     if (d.length === 8) return `${d.substring(0,4)}-${d.substring(4,6)}-${d.substring(6,8)}`;
-    return raw.substring(0, 15); // Fallback for normal dates
+    return raw.substring(0, 15); 
   };
 
   const togglePoSelection = (id: string) => {
@@ -122,11 +122,17 @@ export default function ManagerDashboard() {
       text = text.replace(/^\uFEFF/, ''); 
       const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
-      // 1. Universal Grid Constructor 
+      // 1. Detect if this is the Aeris ERP Corrupted format globally based on the first line
+      const firstLine = rawLines[0] || "";
+      const isAerisERP = firstLine.includes('",""') || firstLine.includes('","');
+
       const grid = rawLines.map((line: string) => {
-        if (line.includes('",""')) {
+        // If it's the ERP format, force EVERY line to slice using the ERP logic to maintain column alignment
+        if (isAerisERP) {
           return line.split(/",""|,""|"",|","/).map((c: string) => c.replace(/"/g, '').trim());
         }
+        
+        // Otherwise, run native standard CSV parsing
         const delimiter = line.includes(';') ? ';' : ',';
         const cols: string[] = [];
         let inQuotes = false;
@@ -143,6 +149,7 @@ export default function ManagerDashboard() {
 
       // 2. Fuzzy Dictionary Setup
       const matchAlias = (val: string, aliases: string[]) => {
+        if (!val) return false;
         const cleanVal = val.toLowerCase().replace(/[^a-z0-9]/g, '');
         return aliases.some(alias => cleanVal.includes(alias.replace(/[^a-z0-9]/g, '')));
       };
@@ -158,14 +165,13 @@ export default function ManagerDashboard() {
       for (let i = 0; i < Math.min(grid.length, 30); i++) {
         const row = grid[i];
 
-        // ADDED STRICT TYPES HERE (cell: string, cellIdx: number)
         row.forEach((cell: string, cellIdx: number) => {
+          if (!cell) return;
           const lower = cell.toLowerCase();
           if (!globalPoNum && (lower.includes('po number') || lower === 'po')) globalPoNum = row[cellIdx + 1] || "";
           if (!globalBuyer && (lower.includes('buyer') || lower.includes('retailer'))) globalBuyer = row[cellIdx + 1] || "";
         });
 
-        // ADDED STRICT TYPES HERE (c: string)
         const barcodeIdx = row.findIndex((c: string) => matchAlias(c, ['barcode', 'plu', 'upc', 'ean', 'sku']));
         const qtyIdx = row.findIndex((c: string) => matchAlias(c, ['orderquantity', 'qty', 'quantity', 'amount']));
 
@@ -193,7 +199,8 @@ export default function ManagerDashboard() {
         const cols = grid[i];
         const barcode = cols[colMap.barcode];
         
-        if (!barcode || barcode.length < 5) continue;
+        // Skip rows that don't have a valid barcode string length
+        if (!barcode || barcode.length < 4) continue;
 
         if (!globalPoNum && colMap.po !== -1 && cols[colMap.po]) globalPoNum = cols[colMap.po];
         if (!globalBuyer && colMap.buyer !== -1 && cols[colMap.buyer]) globalBuyer = cols[colMap.buyer];
@@ -211,7 +218,11 @@ export default function ManagerDashboard() {
         });
       }
 
-      if (parsedItems.length === 0) throw new Error("Could not detect any line items under the headers.");
+      if (parsedItems.length === 0) {
+        // Fallback error logging to see exactly why the columns broke
+        const debugCols = `Barcode(${colMap.barcode}) / Qty(${colMap.qty}). Extracted Row: [${grid[hRow + 1]?.join(', ')}]`;
+        throw new Error(`Could not detect line items. Debug Info: ${debugCols}`);
+      }
 
       setMessage({ text: "Cross-referencing Master Catalog...", type: "info" });
       const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
@@ -397,7 +408,6 @@ export default function ManagerDashboard() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
