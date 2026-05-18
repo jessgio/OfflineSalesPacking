@@ -17,7 +17,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("status");
 
-  // PHASE 3: ACCOUNTABILITY STATES
+  // NEW: State to pin the most recently scanned item to the top of the table
+  const [lastScannedId, setLastScannedId] = useState<string | null>(null);
+
   const [packerName, setPackerName] = useState("");
   const [isClaimed, setIsClaimed] = useState(false);
   const claimInputRef = useRef<HTMLInputElement>(null);
@@ -30,7 +32,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       const { data: poData } = await supabase.from("purchase_orders").select("*").eq("id", poId).single();
       if (poData) {
         setPo(poData);
-        // If someone already claimed this PO earlier, unlock the station automatically
         if (poData.packed_by && poData.packed_by !== 'Unassigned') {
           setPackerName(poData.packed_by);
           setIsClaimed(true);
@@ -43,35 +44,21 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     loadData();
   }, [poId]);
 
-  // SMART FOCUS MANAGER
   useEffect(() => {
     const keepFocus = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (
-        target.closest('select') || 
-        target.closest('input:not([type="hidden"])') || 
-        target.closest('button') || 
-        target.closest('a')
-      ) {
+      if (target.closest('select') || target.closest('input:not([type="hidden"])') || target.closest('button') || target.closest('a')) {
         return; 
       }
-      // Depending on whether it's claimed or not, focus the right hidden input!
-      if (!isClaimed) {
-        claimInputRef.current?.focus();
-      } else {
-        inputRef.current?.focus(); 
-      }
+      if (!isClaimed) { claimInputRef.current?.focus(); } else { inputRef.current?.focus(); }
     };
     
     document.addEventListener("click", keepFocus);
-    if (!isClaimed) {
-      claimInputRef.current?.focus();
-    } else {
-      inputRef.current?.focus(); 
-    }
+    if (!isClaimed) { claimInputRef.current?.focus(); } else { inputRef.current?.focus(); }
     return () => document.removeEventListener("click", keepFocus);
   }, [isClaimed]);
 
+  // NEW: Upgraded Audio Engine (Loud Buzzer for errors)
   const playSound = (type: "success" | "error" | "complete") => {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -81,18 +68,23 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     gain.connect(ctx.destination);
     
     if (type === "success") {
-      osc.type = "sine"; osc.frequency.setValueAtTime(880, ctx.currentTime); 
+      osc.type = "sine"; 
+      osc.frequency.setValueAtTime(880, ctx.currentTime); 
       gain.gain.setValueAtTime(0.1, ctx.currentTime);
       osc.start(); osc.stop(ctx.currentTime + 0.1);
     } else if (type === "complete") {
-      osc.type = "sine"; osc.frequency.setValueAtTime(880, ctx.currentTime); 
+      osc.type = "sine"; 
+      osc.frequency.setValueAtTime(880, ctx.currentTime); 
       osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1); 
       gain.gain.setValueAtTime(0.1, ctx.currentTime);
       osc.start(); osc.stop(ctx.currentTime + 0.3);
     } else {
-      osc.type = "sawtooth"; osc.frequency.setValueAtTime(150, ctx.currentTime); 
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      osc.start(); osc.stop(ctx.currentTime + 0.3);
+      // Harsh "Access Denied" Double-Buzzer
+      osc.type = "square"; // Square waves sound much harsher and louder
+      osc.frequency.setValueAtTime(150, ctx.currentTime); 
+      osc.frequency.setValueAtTime(100, ctx.currentTime + 0.15); 
+      gain.gain.setValueAtTime(0.3, ctx.currentTime); // Volume boosted
+      osc.start(); osc.stop(ctx.currentTime + 0.4);
     }
   };
 
@@ -101,7 +93,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  // PHASE 3: CHECK-IN LOGIC
   const handleClaimPO = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanedName = packerName.trim().toUpperCase();
@@ -109,8 +100,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       playSound("error");
       return;
     }
-
-    // Save packer to database and unlock the screen
     playSound("success");
     await supabase.from("purchase_orders").update({ packed_by: cleanedName }).eq("id", poId);
     setPo({ ...po, packed_by: cleanedName });
@@ -129,6 +118,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
     const item = items[itemIndex];
 
+    // JUMP TO TOP: Pin this item to the top of the list
+    setLastScannedId(item.id);
+
     if (item.scanned_qty >= item.target_qty) {
       playSound("error");
       setFeedback({ message: `⚠️ OVER-PICK: You already have enough of [${item.product_name}]!`, type: "error" });
@@ -137,7 +129,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
     const timestamp = new Date().toISOString();
     const currentHistory = Array.isArray(item.scan_history) ? item.scan_history : [];
-    // Tag the specific packer's name inside the timestamp!
     const newHistory = [...currentHistory, `${timestamp}|${packerName}`];
 
     const newScannedQty = item.scanned_qty + 1;
@@ -224,9 +215,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
   if (!po) return <div className="p-8 text-center text-gray-500 flex flex-col items-center justify-center min-h-screen"><Loader2 className="animate-spin w-8 h-8 mb-4 text-blue-500" /> Loading PO Data...</div>;
 
-  // -------------------------------------------------------------
-  // PHASE 3: THE LOCK SCREEN (Shows if no packer is assigned)
-  // -------------------------------------------------------------
   if (!isClaimed) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-8 z-50 fixed inset-0">
@@ -244,12 +232,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
               placeholder="e.g., ADITYA" 
               value={packerName}
               onChange={(e) => setPackerName(e.target.value)}
-              className="w-full text-center text-2xl font-bold uppercase tracking-widest border-2 border-gray-300 rounded-xl py-4 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition mb-6 text-slate-900"
+              className="w-full text-center text-2xl font-bold uppercase tracking-widest border-2 border-gray-300 rounded-xl py-4 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition mb-6"
             />
-            <button 
-              type="submit" 
-              className="w-full bg-blue-600 text-white font-bold text-lg rounded-xl py-4 hover:bg-blue-700 transition shadow-lg shadow-blue-200"
-            >
+            <button type="submit" className="w-full bg-blue-600 text-white font-bold text-lg rounded-xl py-4 hover:bg-blue-700 transition shadow-lg shadow-blue-200">
               Unlock Station
             </button>
           </form>
@@ -261,9 +246,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     );
   }
 
-  // ------------------------------------------------------------- 
-  // THE ACTUAL PACKING APP (Unlocks once claimed)
-  // -------------------------------------------------------------
   let displayItems = [...items];
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -271,8 +253,13 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   }
 
   displayItems.sort((a, b) => {
+    // ACTIVE PIN: If an item was just scanned, magnetically pull it to the top!
+    if (a.id === lastScannedId) return -1;
+    if (b.id === lastScannedId) return 1;
+
     const aDone = a.scanned_qty >= a.target_qty || a.is_short;
     const bDone = b.scanned_qty >= b.target_qty || b.is_short;
+    
     if (sortBy === "status") return aDone === bDone ? 0 : aDone ? 1 : -1;
     if (sortBy === "name-asc") return a.product_name.localeCompare(b.product_name);
     if (sortBy === "qty-desc") return b.target_qty - a.target_qty; 
@@ -300,7 +287,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                 <span className="text-blue-700 font-bold">{po.retailer_name}</span>
                 <span className="flex items-center gap-1.5 text-gray-500 ml-4 border-l pl-4"><Calendar className="w-4 h-4" /> Received: {po.po_date}</span>
                 <span className="flex items-center gap-1.5 text-red-600 font-bold border-l pl-4"><Truck className="w-4 h-4" /> Deadline: {po.delivery_date}</span>
-                {/* NEW PHASE 3 HEADER: Show who is actively logged into this PO */}
                 <span className="flex items-center gap-1.5 text-green-600 bg-green-50 px-2 py-1 rounded ml-4 border border-green-200 font-bold"><UserCircle className="w-4 h-4" /> Packer: {packerName}</span>
               </div>
             </div>
@@ -375,13 +361,16 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                   const progress = item.target_qty === 0 ? 0 : (item.scanned_qty / item.target_qty) * 100;
                   const historyArray = Array.isArray(item.scan_history) ? item.scan_history : [];
                   
-                  // Phase 3: We appended the packer name to the timestamp (e.g., "2023...10Z|JOHN")
                   const lastScanRaw = historyArray.length > 0 ? historyArray[historyArray.length - 1] : null;
                   const lastScanTime = lastScanRaw ? lastScanRaw.split('|')[0] : null;
                   const lastPacker = lastScanRaw && lastScanRaw.split('|').length > 1 ? lastScanRaw.split('|')[1] : null;
 
                   return (
-                    <tr key={item.id} className={`border-b transition-colors ${isComplete ? 'bg-green-50/50' : isShort ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                    <tr key={item.id} className={`border-b transition-colors ${
+                      item.id === lastScannedId ? 'bg-blue-50 border-l-4 border-l-blue-500' : // HIGHLIGHT THE PINNED ITEM
+                      isComplete ? 'bg-green-50/50' : 
+                      isShort ? 'bg-amber-50' : 'hover:bg-gray-50'
+                    }`}>
                       <td className="p-4 text-center align-middle">
                         {isComplete ? <CheckCircle2 className="w-6 h-6 text-green-500 mx-auto" /> : 
                          isShort ? <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto" /> : 
@@ -442,9 +431,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
         </main>
       </div>
 
-      {/* ------------------------------------------------------------- 
-          THE PDF PRINT VIEW
-      ------------------------------------------------------------- */}
       <div className="hidden print:block p-8 bg-white text-black font-sans w-full">
         <div className="flex justify-between items-end border-b-2 border-black pb-4 mb-6">
           <div>

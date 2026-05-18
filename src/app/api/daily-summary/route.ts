@@ -58,7 +58,7 @@ export async function GET(request: Request) {
       messages: [
         {
           role: "system",
-          content: "You are the AI Warehouse Manager for Aeris Beaute. Analyze the provided raw warehouse data and write a short, punchy, executive email to the Head of Fulfillment. Highlight what is on track, warn them about impending deadlines, and explicitly call out any inventory shortages."
+          content: "You are the AI Warehouse Manager for Aeris Beaute. Analyze the provided raw warehouse data and write a report that highlights what is on track, as well as what has impending deadlines and has not yet been packed."
         },
         {
           role: "user",

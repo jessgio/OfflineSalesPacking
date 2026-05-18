@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X } from "lucide-react";
+import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X, Store, Users } from "lucide-react";
 import Link from "next/link";
 
 export default function ManagerDashboard() {
@@ -10,6 +10,8 @@ export default function ManagerDashboard() {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [selectedPOs, setSelectedPOs] = useState<string[]>([]);
+  
+  const [activeTab, setActiveTab] = useState<"DFI" | "SOCIOLLA" | "RESELLER">("DFI");
 
   useEffect(() => {
     fetchPOs();
@@ -32,6 +34,31 @@ export default function ManagerDashboard() {
     if (!error) {
       setSelectedPOs((prev: string[]) => prev.filter((poId: string) => poId !== id)); 
       fetchPOs(); 
+    }
+  };
+
+  // =========================================================================
+  // NEW FEATURE: BULK DELETE
+  // =========================================================================
+  const handleBulkDelete = async () => {
+    const isConfirmed = window.confirm(`DANGER: Are you sure you want to delete all ${selectedPOs.length} selected POs? This cannot be undone.`);
+    if (!isConfirmed) return;
+
+    setUploading(true);
+    setMessage({ text: "Deleting selected POs...", type: "info" });
+
+    try {
+      const { error } = await supabase.from("purchase_orders").delete().in("id", selectedPOs);
+      if (error) throw error;
+      
+      setMessage({ text: `Successfully deleted ${selectedPOs.length} POs.`, type: "success" });
+      setSelectedPOs([]);
+      fetchPOs();
+    } catch (err: any) {
+      console.error(err);
+      setMessage({ text: "Failed to delete POs.", type: "error" });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -111,160 +138,131 @@ export default function ManagerDashboard() {
   };
 
   // =========================================================================
-  // STRICT HORIZONTAL DFI PARSER
-  // Assumes a completely standard/clean CSV layout internally
+  // NEW FEATURE: BULK UPLOAD QUEUE MANAGER
+  // Loops through all files dragged into the dropzone
   // =========================================================================
   const handleFileUpload = async (event: any) => {
-    const file = event.target.files[0];
-    if (!file) return;
+    const files = Array.from(event.target.files) as File[];
+    if (files.length === 0) return;
 
     setUploading(true);
-    setMessage({ text: "Reading Standard CSV...", type: "info" });
+    let successCount = 0;
+    let failCount = 0;
 
-    try {
-      let text = await file.text();
-      text = text.replace(/^\uFEFF/, ''); 
+    // Loop through every file provided by the user
+    for (let f = 0; f < files.length; f++) {
+      const file = files[f];
+      setMessage({ text: `Processing file ${f + 1} of ${files.length}: ${file.name}...`, type: "info" });
 
-      // 1. STANDARD NATIVE CSV PARSER (Safely handles commas inside quotes)
-      const parseCSV = (str: string) => {
-          const arr: string[][] = [];
-          let quote = false;
-          let row = 0, col = 0;
-          for (let c = 0; c < str.length; c++) {
-              let cc = str[c], nc = str[c+1];
-              arr[row] = arr[row] || [];
-              arr[row][col] = arr[row][col] || '';
+      try {
+        let text = await file.text();
+        text = text.replace(/^\uFEFF/, ''); 
+        const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
-              if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }  
-              if (cc === '"') { quote = !quote; continue; }
-              // Handle normal commas (since your DFI file is comma-separated)
-              if (cc === ',' && !quote) { ++col; continue; }
-              if ((cc === '\r' && nc === '\n') && !quote) { ++row; col = 0; ++c; continue; }
-              if ((cc === '\n' || cc === '\r') && !quote) { ++row; col = 0; continue; }
-              
-              arr[row][col] += cc;
+        let parsedItems: any[] = [];
+        let globalPoNum = "";
+        let globalBuyer = "";
+        let globalPoDate = "";
+        let globalDelDate = "";
+
+        // MODULE 1: DFI / GUARDIAN 
+        if (activeTab === "DFI") {
+          let currentItem: any = null;
+          for (const line of rawLines) {
+            const cleanLine = line.replace(/['"]/g, '').trim();
+            const sepIdx = cleanLine.indexOf(':');
+            if (sepIdx === -1) continue;
+
+            const key = cleanLine.substring(0, sepIdx).trim();
+            const val = cleanLine.substring(sepIdx + 1).trim();
+
+            if (key === 'PO Number' && !globalPoNum) globalPoNum = val;
+            if (key === 'Buyer Name' && !globalBuyer) globalBuyer = val;
+            if (key === 'PO Date' && !globalPoDate) globalPoDate = formatErpDate(val);
+            if (key === 'Delivery Date' && !globalDelDate) globalDelDate = formatErpDate(val);
+
+            if (key === 'PO Number') {
+              if (currentItem && currentItem.barcode && currentItem.barcode.length > 3) {
+                parsedItems.push({ ...currentItem });
+              }
+              currentItem = { barcode: "", productName: "", innerBoxes: 0, packQty: 1, targetQty: 0 };
+            }
+
+            if (currentItem) {
+              if (key === 'Code - PLU') currentItem.barcode = val;
+              if (key === 'Product Description') currentItem.productName = val;
+              if (key === 'Order Quantity') currentItem.innerBoxes = parseInt(val, 10) || 0;
+              if (key === 'Pack Quantity') currentItem.packQty = parseInt(val, 10) || 1;
+            }
           }
-          // Trim whitespace and remove residual outer quotes
-          return arr.map(r => r.map(c => c.trim().replace(/^"+|"+$/g, '')));
-      };
+          if (currentItem && currentItem.barcode && currentItem.barcode.length > 3) parsedItems.push({ ...currentItem });
 
-      // Create Grid
-      let grid = parseCSV(text);
-      grid = grid.filter(row => row.join('').trim().length > 0);
-
-      // 2. FIND EXACT HEADERS
-      let hRow = -1;
-      for (let i = 0; i < Math.min(grid.length, 10); i++) {
-        if (grid[i].includes("Code - PLU")) {
-          hRow = i;
-          break;
+          if (parsedItems.length === 0) {
+            throw new Error(`Could not construct DFI format from ${file.name}`);
+          }
+          parsedItems.forEach(item => { item.targetQty = item.innerBoxes * item.packQty; });
         }
+
+        if (activeTab === "SOCIOLLA") throw new Error("Sociolla extraction module pending administrative setup.");
+        if (activeTab === "RESELLER") throw new Error("Reseller extraction module pending administrative setup.");
+
+        // MASTER CATALOG RECONCILIATION
+        const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
+        const { data: masterProducts } = await supabase.from('products').select('barcode, clean_name').in('barcode', uniqueBarcodes);
+        const productDictionary: Record<string, string> = {};
+        if (masterProducts) {
+          masterProducts.forEach((p: any) => { productDictionary[p.barcode] = p.clean_name; });
+        }
+
+        const totalItems = parsedItems.reduce((sum: number, item: any) => sum + item.targetQty, 0);
+
+        // CREATE PO IN DATABASE
+        const { data: poData, error: poError } = await supabase
+          .from("purchase_orders")
+          .insert([{ 
+              po_number: globalPoNum || `PO-${Math.floor(Math.random()*10000)}`, 
+              retailer_name: globalBuyer || activeTab,
+              po_date: globalPoDate || 'N/A',
+              delivery_date: globalDelDate || 'N/A',
+              total_items: totalItems,
+              status: "Not Started" 
+          }])
+          .select()
+          .single();
+
+        if (poError) throw poError;
+
+        // CREATE LINE ITEMS IN DATABASE
+        const itemsToInsert = parsedItems.map((item: any) => ({
+          po_id: poData.id,
+          barcode: item.barcode,
+          product_name: productDictionary[item.barcode] || item.productName || "Aeris SKU",
+          inner_boxes: item.innerBoxes || item.targetQty, 
+          target_qty: item.targetQty,
+          scanned_qty: 0,
+          scan_history: []
+        }));
+
+        const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert);
+        if (itemsError) throw itemsError;
+
+        successCount++; // Successfully logged this specific file!
+
+      } catch (error: any) {
+        console.error(`Upload error on ${file.name}:`, error);
+        failCount++; // Log the failure but don't crash the loop!
       }
+    }
 
-      if (hRow === -1) {
-        throw new Error("Validation Failed: Could not find exactly 'Code - PLU' in the file.");
-      }
+    // ALL FILES COMPLETED
+    setUploading(false);
+    fetchPOs(); 
+    event.target.value = null; // Clear physical input
 
-      const headers = grid[hRow];
-
-      // Exact Mapping
-      const iPo = headers.indexOf('PO Number');
-      const iBuyer = headers.indexOf('Buyer Name');
-      const iPoDate = headers.indexOf('PO Date');
-      const iDelivDate = headers.indexOf('Delivery Date');
-      const iPlu = headers.indexOf('Code - PLU');
-      const iDesc = headers.indexOf('Product Description');
-      const iQty = headers.indexOf('Order Quantity');
-      const iPackQty = headers.indexOf('Pack Quantity');
-
-      if (iQty === -1) {
-        throw new Error("Validation Failed: Found Barcodes, but missing exactly 'Order Quantity'.");
-      }
-
-      // 3. EXTRACT LINE ITEMS
-      const parsedItems: any[] = [];
-      let globalPoNum = "";
-      let globalBuyer = "";
-      let globalPoDate = "";
-      let globalDelDate = "";
-
-      for (let i = hRow + 1; i < grid.length; i++) {
-        const cols = grid[i];
-        const barcode = cols[iPlu];
-        
-        // Skip blanks
-        if (!barcode || barcode.length < 5) continue;
-
-        // Grab Global PO Data if it exists in the row (DFI usually repeats it)
-        if (!globalPoNum && iPo !== -1 && cols[iPo]) globalPoNum = cols[iPo];
-        if (!globalBuyer && iBuyer !== -1 && cols[iBuyer]) globalBuyer = cols[iBuyer];
-        if (!globalPoDate && iPoDate !== -1 && cols[iPoDate]) globalPoDate = formatErpDate(cols[iPoDate]);
-        
-        // TYPO FIXED HERE -> globalDelDate instead of globalDelivDate
-        if (!globalDelDate && iDelivDate !== -1 && cols[iDelivDate]) globalDelDate = formatErpDate(cols[iDelivDate]);
-
-        const orderQty = iQty !== -1 ? parseInt(cols[iQty], 10) || 0 : 0;
-        const packQty = iPackQty !== -1 ? parseInt(cols[iPackQty], 10) || 1 : 1; 
-
-        parsedItems.push({
-          barcode: barcode,
-          productName: iDesc !== -1 ? cols[iDesc] : "Aeris SKU",
-          innerBoxes: orderQty, 
-          targetQty: orderQty * packQty 
-        });
-      }
-
-      if (parsedItems.length === 0) throw new Error("Could not detect any line items under the headers.");
-
-      setMessage({ text: "Cross-referencing Master Catalog...", type: "info" });
-      const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
-      const { data: masterProducts } = await supabase.from('products').select('barcode, clean_name').in('barcode', uniqueBarcodes);
-
-      const productDictionary: Record<string, string> = {};
-      if (masterProducts) {
-        masterProducts.forEach((p: any) => { productDictionary[p.barcode] = p.clean_name; });
-      }
-
-      const totalItems = parsedItems.reduce((sum: number, item: any) => sum + item.targetQty, 0);
-
-      // Save to Supabase
-      const { data: poData, error: poError } = await supabase
-        .from("purchase_orders")
-        .insert([{ 
-            po_number: globalPoNum || `PO-${Math.floor(Math.random()*10000)}`, 
-            retailer_name: globalBuyer || "DFI Partner",
-            po_date: globalPoDate || 'N/A',
-            delivery_date: globalDelDate || 'N/A',
-            total_items: totalItems,
-            status: "Not Started" 
-        }])
-        .select()
-        .single();
-
-      if (poError) throw poError;
-
-      const itemsToInsert = parsedItems.map((item: any) => ({
-        po_id: poData.id,
-        barcode: item.barcode,
-        product_name: productDictionary[item.barcode] || item.productName,
-        inner_boxes: item.innerBoxes, 
-        target_qty: item.targetQty,
-        scanned_qty: 0,
-        scan_history: []
-      }));
-
-      const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert);
-      if (itemsError) throw itemsError;
-
-      setMessage({ text: `Success! Added PO ${poData.po_number} with ${parsedItems.length} SKUs.`, type: "success" });
-      fetchPOs(); 
-      event.target.value = null; 
-
-    } catch (error: any) {
-      console.error(error);
-      setMessage({ text: error.message, type: "error" });
-    } finally {
-      setUploading(false);
+    if (failCount === 0) {
+      setMessage({ text: `Success! Bulk processed ${successCount} POs.`, type: "success" });
+    } else {
+      setMessage({ text: `Completed ${successCount} files. Failed on ${failCount} files (Check format or Tab module).`, type: successCount > 0 ? "info" : "error" });
     }
   };
 
@@ -276,23 +274,56 @@ export default function ManagerDashboard() {
           <p className="text-gray-500 mt-1">Scan-to-Pack Management System</p>
         </header>
 
-        {/* UPLOAD ZONE */}
+        {/* UPLOAD ZONE WITH TABS */}
         <section className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 mb-8 max-w-2xl">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-            <UploadCloud className="text-blue-500" /> Upload PO
-          </h2>
           
-          <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-gray-50 hover:bg-gray-100 transition relative">
-            <input type="file" accept=".csv,.txt" onChange={handleFileUpload} disabled={uploading} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed" />
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b pb-4">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+              <UploadCloud className="text-blue-500" /> Upload PO
+            </h2>
+
+            {/* THE RETAILER TABS */}
+            <div className="flex bg-gray-100 p-1 rounded-lg mt-4 sm:mt-0">
+              <button 
+                onClick={() => { setActiveTab("DFI"); setMessage({text:"", type:""}); }}
+                className={`px-4 py-2 text-sm font-bold flex items-center gap-2 rounded-md transition ${activeTab === 'DFI' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Store className="w-4 h-4" /> DFI / Guardian
+              </button>
+              <button 
+                onClick={() => { setActiveTab("SOCIOLLA"); setMessage({text:"", type:""}); }}
+                className={`px-4 py-2 text-sm font-bold flex items-center gap-2 rounded-md transition ${activeTab === 'SOCIOLLA' ? 'bg-white shadow-sm text-pink-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Store className="w-4 h-4" /> Sociolla
+              </button>
+              <button 
+                onClick={() => { setActiveTab("RESELLER"); setMessage({text:"", type:""}); }}
+                className={`px-4 py-2 text-sm font-bold flex items-center gap-2 rounded-md transition ${activeTab === 'RESELLER' ? 'bg-white shadow-sm text-amber-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Users className="w-4 h-4" /> Resellers
+              </button>
+            </div>
+          </div>
+          
+          <div className={`border-2 border-dashed rounded-xl p-8 text-center transition tracking-wide relative ${
+            activeTab === 'DFI' ? 'border-gray-300 bg-gray-50 hover:bg-gray-100' :
+            activeTab === 'SOCIOLLA' ? 'border-pink-200 bg-pink-50/30 hover:bg-pink-50' :
+            'border-amber-200 bg-amber-50/30 hover:bg-amber-50'
+          }`}>
+            {/* NEW: ADDED 'multiple' to input tag */}
+            <input type="file" accept=".csv,.txt,.xlsx" multiple onChange={handleFileUpload} disabled={uploading} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed" />
+            
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600">
                 <Loader2 className="animate-spin w-8 h-8 mb-2" />
-                <span className="font-semibold">Reading Spreadsheet...</span>
+                <span className="font-semibold">Processing Bulk Upload...</span>
               </div>
             ) : (
               <div>
-                <p className="font-semibold text-lg text-gray-700">Click or Drag File here</p>
-                <p className="text-sm text-gray-500 mt-1">Strict Structural Mode: DFI Formats</p>
+                <p className="font-semibold text-lg text-gray-700">Click or Drag <span className="font-bold">{activeTab}</span> Files Here</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  You can now drag multiple files at once!
+                </p>
               </div>
             )}
           </div>
@@ -314,7 +345,7 @@ export default function ManagerDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {pos.length === 0 ? (
               <div className="col-span-full p-8 border-2 border-dashed border-gray-200 rounded-xl text-center text-gray-500 bg-white">
-                Queue is empty. Upload to start.
+                Queue is empty. Upload files to start.
               </div>
             ) : (
               pos.map((po: any) => {
@@ -378,6 +409,7 @@ export default function ManagerDashboard() {
         </section>
       </div>
 
+      {/* NEW: Floating Action Bar with BULK DELETE */}
       {selectedPOs.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white border border-gray-200 shadow-2xl rounded-2xl px-6 py-4 flex items-center justify-between gap-8 z-50 w-full max-w-2xl animate-fade-in-up">
           <div className="flex items-center gap-4">
@@ -386,15 +418,21 @@ export default function ManagerDashboard() {
             </div>
             <div>
               <p className="font-bold text-gray-900 leading-tight">POs Selected</p>
-              <p className="text-xs text-gray-500 font-medium">Batch pick to save time</p>
+              <p className="text-xs text-gray-500 font-medium">Take action on multiple orders</p>
             </div>
           </div>
           
-          <div className="flex gap-3">
-            <button onClick={() => setSelectedPOs([])} className="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-lg flex items-center gap-2 transition">
+          <div className="flex gap-2">
+            <button onClick={() => setSelectedPOs([])} className="px-3 py-2 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-lg flex items-center gap-1 transition">
               <X className="w-4 h-4" /> Clear
             </button>
-            <button onClick={handleMergePOs} disabled={selectedPOs.length < 2 || uploading} className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition shadow-md shadow-blue-200">
+            
+            {/* THE NEW MASS DELETE BUTTON */}
+            <button onClick={handleBulkDelete} disabled={uploading} className="px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 text-sm font-bold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+
+            <button onClick={handleMergePOs} disabled={selectedPOs.length < 2 || uploading} className="px-5 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition shadow-md shadow-blue-200">
               {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Combine className="w-4 h-4" />} 
               Merge POs
             </button>
