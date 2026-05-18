@@ -110,57 +110,98 @@ export default function ManagerDashboard() {
     }
   };
 
+  // =========================================================================
+  // STRICT HORIZONTAL DFI PARSER
+  // Assumes a completely standard/clean CSV layout internally
+  // =========================================================================
   const handleFileUpload = async (event: any) => {
     const file = event.target.files[0];
     if (!file) return;
 
     setUploading(true);
-    setMessage({ text: "Parsing DFI Retail Nusantara File...", type: "info" });
+    setMessage({ text: "Reading Standard CSV...", type: "info" });
 
     try {
       let text = await file.text();
-      text = text.replace(/^\uFEFF/, ''); // Strip invisible byte markers
-      const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
+      text = text.replace(/^\uFEFF/, ''); 
 
-      // 1. Slice headers using DFI's exact quotation pattern
-      const headerLine = rawLines[0];
-      const rawHeaders = headerLine.split(/",""|,""|"",|","/);
-      const headers = rawHeaders.map((h: string) => h.replace(/"/g, '').trim());
+      // 1. STANDARD NATIVE CSV PARSER (Safely handles commas inside quotes)
+      const parseCSV = (str: string) => {
+          const arr: string[][] = [];
+          let quote = false;
+          let row = 0, col = 0;
+          for (let c = 0; c < str.length; c++) {
+              let cc = str[c], nc = str[c+1];
+              arr[row] = arr[row] || [];
+              arr[row][col] = arr[row][col] || '';
 
-      // 2. STRICT EXACT MATCHING (This solves the 320 bug!)
-      const iPo = headers.findIndex((h: string) => h === 'PO Number');
-      const iBuyer = headers.findIndex((h: string) => h === 'Buyer Name');
-      const iPlu = headers.findIndex((h: string) => h === 'Code - PLU');
-      const iDesc = headers.findIndex((h: string) => h === 'Product Description');
-      const iQty = headers.findIndex((h: string) => h === 'Order Quantity');
-      const iPackQty = headers.findIndex((h: string) => h === 'Pack Quantity');
-      const iPoDate = headers.findIndex((h: string) => h === 'PO Date');
-      const iDelivDate = headers.findIndex((h: string) => h === 'Delivery Date');
+              if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }  
+              if (cc === '"') { quote = !quote; continue; }
+              // Handle normal commas (since your DFI file is comma-separated)
+              if (cc === ',' && !quote) { ++col; continue; }
+              if ((cc === '\r' && nc === '\n') && !quote) { ++row; col = 0; ++c; continue; }
+              if ((cc === '\n' || cc === '\r') && !quote) { ++row; col = 0; continue; }
+              
+              arr[row][col] += cc;
+          }
+          // Trim whitespace and remove residual outer quotes
+          return arr.map(r => r.map(c => c.trim().replace(/^"+|"+$/g, '')));
+      };
 
-      if (iPlu === -1 || iQty === -1) {
-        throw new Error(`CRITICAL: Missing DFI Exact Headers. PluIdx: ${iPlu}, QtyIdx: ${iQty}`);
+      // Create Grid
+      let grid = parseCSV(text);
+      grid = grid.filter(row => row.join('').trim().length > 0);
+
+      // 2. FIND EXACT HEADERS
+      let hRow = -1;
+      for (let i = 0; i < Math.min(grid.length, 10); i++) {
+        if (grid[i].includes("Code - PLU")) {
+          hRow = i;
+          break;
+        }
       }
 
+      if (hRow === -1) {
+        throw new Error("Validation Failed: Could not find exactly 'Code - PLU' in the file.");
+      }
+
+      const headers = grid[hRow];
+
+      // Exact Mapping
+      const iPo = headers.indexOf('PO Number');
+      const iBuyer = headers.indexOf('Buyer Name');
+      const iPoDate = headers.indexOf('PO Date');
+      const iDelivDate = headers.indexOf('Delivery Date');
+      const iPlu = headers.indexOf('Code - PLU');
+      const iDesc = headers.indexOf('Product Description');
+      const iQty = headers.indexOf('Order Quantity');
+      const iPackQty = headers.indexOf('Pack Quantity');
+
+      if (iQty === -1) {
+        throw new Error("Validation Failed: Found Barcodes, but missing exactly 'Order Quantity'.");
+      }
+
+      // 3. EXTRACT LINE ITEMS
       const parsedItems: any[] = [];
-      let globalPoNumber = "Unknown PO";
-      let globalBuyerName = "Aeris Retailer";
+      let globalPoNum = "";
+      let globalBuyer = "";
       let globalPoDate = "";
-      let globalDelivDate = "";
+      let globalDelDate = "";
 
-      for (let i = 1; i < rawLines.length; i++) {
-        const rowLine = rawLines[i];
-        
-        // Slice the row exactly like we sliced the headers
-        const rawCols = rowLine.split(/",""|,""|"",|","/);
-        const cols = rawCols.map((c: string) => c.replace(/"/g, '').trim());
-
+      for (let i = hRow + 1; i < grid.length; i++) {
+        const cols = grid[i];
         const barcode = cols[iPlu];
+        
+        // Skip blanks
         if (!barcode || barcode.length < 5) continue;
 
-        if (globalPoNumber === "Unknown PO" && iPo !== -1 && cols[iPo]) globalPoNumber = cols[iPo];
-        if (globalBuyerName === "Aeris Retailer" && iBuyer !== -1 && cols[iBuyer]) globalBuyerName = cols[iBuyer];
+        // Grab Global PO Data if it exists in the row (DFI usually repeats it)
+        if (!globalPoNum && iPo !== -1 && cols[iPo]) globalPoNum = cols[iPo];
+        if (!globalBuyer && iBuyer !== -1 && cols[iBuyer]) globalBuyer = cols[iBuyer];
         if (!globalPoDate && iPoDate !== -1 && cols[iPoDate]) globalPoDate = formatErpDate(cols[iPoDate]);
-        if (!globalDelivDate && iDelivDate !== -1 && cols[iDelivDate]) globalDelivDate = formatErpDate(cols[iDelivDate]);
+        
+        // TYPO FIXED HERE -> globalDelDate instead of globalDelivDate
+        if (!globalDelDate && iDelivDate !== -1 && cols[iDelivDate]) globalDelDate = formatErpDate(cols[iDelivDate]);
 
         const orderQty = iQty !== -1 ? parseInt(cols[iQty], 10) || 0 : 0;
         const packQty = iPackQty !== -1 ? parseInt(cols[iPackQty], 10) || 1 : 1; 
@@ -186,13 +227,14 @@ export default function ManagerDashboard() {
 
       const totalItems = parsedItems.reduce((sum: number, item: any) => sum + item.targetQty, 0);
 
+      // Save to Supabase
       const { data: poData, error: poError } = await supabase
         .from("purchase_orders")
         .insert([{ 
-            po_number: globalPoNumber, 
-            retailer_name: globalBuyerName,
+            po_number: globalPoNum || `PO-${Math.floor(Math.random()*10000)}`, 
+            retailer_name: globalBuyer || "DFI Partner",
             po_date: globalPoDate || 'N/A',
-            delivery_date: globalDelivDate || 'N/A',
+            delivery_date: globalDelDate || 'N/A',
             total_items: totalItems,
             status: "Not Started" 
         }])
@@ -214,12 +256,12 @@ export default function ManagerDashboard() {
       const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      setMessage({ text: `Success! PO ${globalPoNumber} added from DFI Module.`, type: "success" });
+      setMessage({ text: `Success! Added PO ${poData.po_number} with ${parsedItems.length} SKUs.`, type: "success" });
       fetchPOs(); 
       event.target.value = null; 
 
     } catch (error: any) {
-      console.error("Upload error details:", error);
+      console.error(error);
       setMessage({ text: error.message, type: "error" });
     } finally {
       setUploading(false);
@@ -237,7 +279,7 @@ export default function ManagerDashboard() {
         {/* UPLOAD ZONE */}
         <section className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 mb-8 max-w-2xl">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-            <UploadCloud className="text-blue-500" /> Upload PO (DFI File)
+            <UploadCloud className="text-blue-500" /> Upload PO
           </h2>
           
           <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-gray-50 hover:bg-gray-100 transition relative">
@@ -245,12 +287,12 @@ export default function ManagerDashboard() {
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600">
                 <Loader2 className="animate-spin w-8 h-8 mb-2" />
-                <span className="font-semibold">Processing Data...</span>
+                <span className="font-semibold">Reading Spreadsheet...</span>
               </div>
             ) : (
               <div>
                 <p className="font-semibold text-lg text-gray-700">Click or Drag File here</p>
-                <p className="text-sm text-gray-500 mt-1">DFI Retail Nusantara Extraction Module</p>
+                <p className="text-sm text-gray-500 mt-1">Strict Structural Mode: DFI Formats</p>
               </div>
             )}
           </div>
