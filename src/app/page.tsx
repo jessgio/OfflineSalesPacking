@@ -115,117 +115,65 @@ export default function ManagerDashboard() {
     if (!file) return;
 
     setUploading(true);
-    setMessage({ text: "Smart Mapping Columns...", type: "info" });
+    setMessage({ text: "Parsing DFI Retail Nusantara File...", type: "info" });
 
     try {
       let text = await file.text();
-      text = text.replace(/^\uFEFF/, ''); 
+      text = text.replace(/^\uFEFF/, ''); // Strip invisible byte markers
       const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
-      const firstLine = rawLines[0] || "";
-      const isAerisERP = firstLine.includes('",""') || firstLine.includes('","');
+      // 1. Slice headers using DFI's exact quotation pattern
+      const headerLine = rawLines[0];
+      const rawHeaders = headerLine.split(/",""|,""|"",|","/);
+      const headers = rawHeaders.map((h: string) => h.replace(/"/g, '').trim());
 
-      const grid = rawLines.map((line: string) => {
-        if (isAerisERP) {
-          return line.split(/",""|,""|"",|","/).map((c: string) => c.replace(/"/g, '').trim());
-        }
-        
-        const delimiter = line.includes(';') ? ';' : ',';
-        const cols: string[] = [];
-        let inQuotes = false;
-        let currentWord = "";
-        for (let i = 0; i < line.length; i++) {
-          let char = line[i];
-          if (char === '"') { inQuotes = !inQuotes; continue; }
-          if (char === delimiter && !inQuotes) { cols.push(currentWord.trim()); currentWord = ""; continue; }
-          currentWord += char;
-        }
-        cols.push(currentWord.trim());
-        return cols;
-      });
+      // 2. STRICT EXACT MATCHING (This solves the 320 bug!)
+      const iPo = headers.findIndex((h: string) => h === 'PO Number');
+      const iBuyer = headers.findIndex((h: string) => h === 'Buyer Name');
+      const iPlu = headers.findIndex((h: string) => h === 'Code - PLU');
+      const iDesc = headers.findIndex((h: string) => h === 'Product Description');
+      const iQty = headers.findIndex((h: string) => h === 'Order Quantity');
+      const iPackQty = headers.findIndex((h: string) => h === 'Pack Quantity');
+      const iPoDate = headers.findIndex((h: string) => h === 'PO Date');
+      const iDelivDate = headers.findIndex((h: string) => h === 'Delivery Date');
 
-      // SMART ALIAS FINDER: Checks for EXACT string matches before allowing fuzzy partial matches!
-      const findColumnIndex = (row: string[], aliases: string[], exclude: string[] = []) => {
-        // 1. Strict Exact Match (e.g. "deliverydate" !== "deliverytocode")
-        for (let alias of aliases) {
-          const exactIdx = row.findIndex((c: string) => {
-             const cleanC = c.toLowerCase().replace(/[^a-z0-9]/g, '');
-             return cleanC === alias.replace(/[^a-z0-9]/g, '') && !exclude.some(ex => cleanC.includes(ex));
-          });
-          if (exactIdx !== -1) return exactIdx;
-        }
-        // 2. Fuzzy Partial Match Fail-safe
-        for (let alias of aliases) {
-          const partialIdx = row.findIndex((c: string) => {
-             const cleanC = c.toLowerCase().replace(/[^a-z0-9]/g, '');
-             return cleanC.includes(alias.replace(/[^a-z0-9]/g, '')) && !exclude.some(ex => cleanC.includes(ex));
-          });
-          if (partialIdx !== -1) return partialIdx;
-        }
-        return -1;
-      };
-
-      let hRow = -1;
-      let colMap = { po: -1, buyer: -1, barcode: -1, desc: -1, qty: -1, pack: -1, poDate: -1, delDate: -1 };
-
-      for (let i = 0; i < Math.min(grid.length, 30); i++) {
-        const row = grid[i];
-
-        const barcodeIdx = findColumnIndex(row, ['codeplu', 'barcode', 'plu', 'upc', 'ean', 'sku']);
-        const qtyIdx = findColumnIndex(row, ['orderquantity', 'qty', 'quantity', 'amount'], ['pack', 'inner']);
-
-        if (barcodeIdx !== -1 && qtyIdx !== -1) {
-          hRow = i; 
-          colMap.barcode = barcodeIdx;
-          colMap.qty = qtyIdx;
-          colMap.desc = findColumnIndex(row, ['productdescription', 'description', 'name', 'product', 'item']);
-          colMap.pack = findColumnIndex(row, ['packquantity', 'pack', 'inner', 'caseqty']);
-          
-          // PRECISE MAPPING to prevent getting hijacked by similar words
-          colMap.po = findColumnIndex(row, ['ponumber', 'purchaseorder', 'orderid']);
-          colMap.poDate = findColumnIndex(row, ['podate', 'orderdate']);
-          colMap.buyer = findColumnIndex(row, ['buyername', 'retailername', 'storename', 'buyer']);
-          colMap.delDate = findColumnIndex(row, ['deliverydate', 'deadline', 'shipdate', 'delivery']);
-          break;
-        }
-      }
-
-      if (hRow === -1 || colMap.barcode === -1) {
-        throw new Error("Analyzer could not find Barcode or valid Order Quantity headers.");
+      if (iPlu === -1 || iQty === -1) {
+        throw new Error(`CRITICAL: Missing DFI Exact Headers. PluIdx: ${iPlu}, QtyIdx: ${iQty}`);
       }
 
       const parsedItems: any[] = [];
-      let globalPoNum = "";
-      let globalBuyer = "";
+      let globalPoNumber = "Unknown PO";
+      let globalBuyerName = "Aeris Retailer";
       let globalPoDate = "";
-      let globalDelDate = "";
-      
-      for (let i = hRow + 1; i < grid.length; i++) {
-        const cols = grid[i];
-        const barcode = cols[colMap.barcode];
+      let globalDelivDate = "";
+
+      for (let i = 1; i < rawLines.length; i++) {
+        const rowLine = rawLines[i];
         
-        if (!barcode || barcode.length < 4) continue;
+        // Slice the row exactly like we sliced the headers
+        const rawCols = rowLine.split(/",""|,""|"",|","/);
+        const cols = rawCols.map((c: string) => c.replace(/"/g, '').trim());
 
-        // Grab global stats from the VERY FIRST valid row, and then lock them!
-        if (!globalPoNum && colMap.po !== -1 && cols[colMap.po]) globalPoNum = cols[colMap.po];
-        if (!globalBuyer && colMap.buyer !== -1 && cols[colMap.buyer]) globalBuyer = cols[colMap.buyer];
-        if (!globalPoDate && colMap.poDate !== -1 && cols[colMap.poDate]) globalPoDate = formatErpDate(cols[colMap.poDate]);
-        if (!globalDelDate && colMap.delDate !== -1 && cols[colMap.delDate]) globalDelDate = formatErpDate(cols[colMap.delDate]);
+        const barcode = cols[iPlu];
+        if (!barcode || barcode.length < 5) continue;
 
-        const orderQty = colMap.qty !== -1 ? parseInt(cols[colMap.qty], 10) || 0 : 0;
-        const packQty = colMap.pack !== -1 ? parseInt(cols[colMap.pack], 10) || 1 : 1; 
+        if (globalPoNumber === "Unknown PO" && iPo !== -1 && cols[iPo]) globalPoNumber = cols[iPo];
+        if (globalBuyerName === "Aeris Retailer" && iBuyer !== -1 && cols[iBuyer]) globalBuyerName = cols[iBuyer];
+        if (!globalPoDate && iPoDate !== -1 && cols[iPoDate]) globalPoDate = formatErpDate(cols[iPoDate]);
+        if (!globalDelivDate && iDelivDate !== -1 && cols[iDelivDate]) globalDelivDate = formatErpDate(cols[iDelivDate]);
+
+        const orderQty = iQty !== -1 ? parseInt(cols[iQty], 10) || 0 : 0;
+        const packQty = iPackQty !== -1 ? parseInt(cols[iPackQty], 10) || 1 : 1; 
 
         parsedItems.push({
           barcode: barcode,
-          productName: colMap.desc !== -1 ? cols[colMap.desc] : "Aeris SKU",
+          productName: iDesc !== -1 ? cols[iDesc] : "Aeris SKU",
           innerBoxes: orderQty, 
           targetQty: orderQty * packQty 
         });
       }
 
-      if (parsedItems.length === 0) {
-        throw new Error(`Data Mapping Error. Check columns!`);
-      }
+      if (parsedItems.length === 0) throw new Error("Could not detect any line items under the headers.");
 
       setMessage({ text: "Cross-referencing Master Catalog...", type: "info" });
       const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
@@ -241,10 +189,10 @@ export default function ManagerDashboard() {
       const { data: poData, error: poError } = await supabase
         .from("purchase_orders")
         .insert([{ 
-            po_number: globalPoNum || `PO-${Math.floor(Math.random()*10000)}`, 
-            retailer_name: globalBuyer || "Retailer Partner",
+            po_number: globalPoNumber, 
+            retailer_name: globalBuyerName,
             po_date: globalPoDate || 'N/A',
-            delivery_date: globalDelDate || 'N/A',
+            delivery_date: globalDelivDate || 'N/A',
             total_items: totalItems,
             status: "Not Started" 
         }])
@@ -266,12 +214,12 @@ export default function ManagerDashboard() {
       const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      setMessage({ text: `Success! PO ${poData.po_number} uploaded completely.`, type: "success" });
+      setMessage({ text: `Success! PO ${globalPoNumber} added from DFI Module.`, type: "success" });
       fetchPOs(); 
       event.target.value = null; 
 
     } catch (error: any) {
-      console.error(error);
+      console.error("Upload error details:", error);
       setMessage({ text: error.message, type: "error" });
     } finally {
       setUploading(false);
@@ -289,7 +237,7 @@ export default function ManagerDashboard() {
         {/* UPLOAD ZONE */}
         <section className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 mb-8 max-w-2xl">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-            <UploadCloud className="text-blue-500" /> Upload New PO
+            <UploadCloud className="text-blue-500" /> Upload PO (DFI File)
           </h2>
           
           <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-gray-50 hover:bg-gray-100 transition relative">
@@ -297,12 +245,12 @@ export default function ManagerDashboard() {
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600">
                 <Loader2 className="animate-spin w-8 h-8 mb-2" />
-                <span className="font-semibold">Smart Parsing Data...</span>
+                <span className="font-semibold">Processing Data...</span>
               </div>
             ) : (
               <div>
                 <p className="font-semibold text-lg text-gray-700">Click or Drag File here</p>
-                <p className="text-sm text-gray-500 mt-1">Universal Engine: Validated for Sephora, Sociolla & ERPs</p>
+                <p className="text-sm text-gray-500 mt-1">DFI Retail Nusantara Extraction Module</p>
               </div>
             )}
           </div>
