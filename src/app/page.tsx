@@ -115,42 +115,41 @@ export default function ManagerDashboard() {
     if (!file) return;
 
     setUploading(true);
-    setMessage({ text: "Universal Engine Scanning File...", type: "info" });
+    setMessage({ text: "Initializing Bulletproof CSV Extraction...", type: "info" });
 
     try {
       let text = await file.text();
       text = text.replace(/^\uFEFF/, ''); 
-      const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
-      // 1. Detect if this is the Aeris ERP Corrupted format globally based on the first line
-      const firstLine = rawLines[0] || "";
-      const isAerisERP = firstLine.includes('",""') || firstLine.includes('","');
+      // 1. BULLETPROOF NATIVE CSV PARSER (Ignores internal commas safely)
+      const parseCSV = (str: string) => {
+          const arr: string[][] = [];
+          let quote = false;
+          let row = 0, col = 0;
+          for (let c = 0; c < str.length; c++) {
+              let cc = str[c], nc = str[c+1];
+              arr[row] = arr[row] || [];
+              arr[row][col] = arr[row][col] || '';
 
-      const grid = rawLines.map((line: string) => {
-        // If it's the ERP format, force EVERY line to slice using the ERP logic to maintain column alignment
-        if (isAerisERP) {
-          return line.split(/",""|,""|"",|","/).map((c: string) => c.replace(/"/g, '').trim());
-        }
-        
-        // Otherwise, run native standard CSV parsing
-        const delimiter = line.includes(';') ? ';' : ',';
-        const cols: string[] = [];
-        let inQuotes = false;
-        let currentWord = "";
-        for (let i = 0; i < line.length; i++) {
-          let char = line[i];
-          if (char === '"') { inQuotes = !inQuotes; continue; }
-          if (char === delimiter && !inQuotes) { cols.push(currentWord.trim()); currentWord = ""; continue; }
-          currentWord += char;
-        }
-        cols.push(currentWord.trim());
-        return cols;
-      });
+              if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }  
+              if (cc === '"') { quote = !quote; continue; }
+              if (cc === ',' && !quote) { ++col; continue; }
+              if ((cc === '\r' && nc === '\n') && !quote) { ++row; col = 0; ++c; continue; }
+              if ((cc === '\n' || cc === '\r') && !quote) { ++row; col = 0; continue; }
+              
+              arr[row][col] += cc;
+          }
+          return arr.map(r => r.map(c => c.trim().replace(/^"+|"+$/g, '')));
+      };
 
-      // 2. Fuzzy Dictionary Setup
-      const matchAlias = (val: string, aliases: string[]) => {
+      let grid = parseCSV(text);
+      grid = grid.filter(row => row.join('').trim().length > 0);
+
+      // 2. SMARTER FUZZY DICTIONARY (With Exclusion abilities)
+      const matchAlias = (val: string, aliases: string[], exclude: string[] = []) => {
         if (!val) return false;
         const cleanVal = val.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (exclude.some(ex => cleanVal.includes(ex))) return false;
         return aliases.some(alias => cleanVal.includes(alias.replace(/[^a-z0-9]/g, '')));
       };
 
@@ -173,14 +172,15 @@ export default function ManagerDashboard() {
         });
 
         const barcodeIdx = row.findIndex((c: string) => matchAlias(c, ['barcode', 'plu', 'upc', 'ean', 'sku']));
-        const qtyIdx = row.findIndex((c: string) => matchAlias(c, ['orderquantity', 'qty', 'quantity', 'amount']));
+        // EXCLUSION FIX: Look for Quantity, but IGNORE columns that say "Pack"
+        const qtyIdx = row.findIndex((c: string) => matchAlias(c, ['orderquantity', 'order', 'qty', 'quantity', 'amount'], ['pack', 'inner']));
 
         if (barcodeIdx !== -1 && qtyIdx !== -1) {
           hRow = i; 
           colMap.barcode = barcodeIdx;
           colMap.qty = qtyIdx;
           colMap.desc = row.findIndex((c: string) => matchAlias(c, ['description', 'name', 'product', 'item']));
-          colMap.pack = row.findIndex((c: string) => matchAlias(c, ['pack', 'inner', 'caseqty']));
+          colMap.pack = row.findIndex((c: string) => matchAlias(c, ['packquantity', 'pack', 'inner', 'caseqty']));
           colMap.po = row.findIndex((c: string) => matchAlias(c, ['ponumber', 'purchaseorder', 'orderid']));
           colMap.buyer = row.findIndex((c: string) => matchAlias(c, ['buyer', 'retailer', 'store', 'customer']));
           colMap.poDate = row.findIndex((c: string) => matchAlias(c, ['podate', 'orderdate', 'date']));
@@ -190,7 +190,7 @@ export default function ManagerDashboard() {
       }
 
       if (hRow === -1 || colMap.barcode === -1) {
-        throw new Error("Analyzer could not find a Barcode or Quantity column on this file.");
+        throw new Error("Analyzer could not find Barcode or valid Order Quantity headers.");
       }
 
       const parsedItems: any[] = [];
@@ -199,8 +199,7 @@ export default function ManagerDashboard() {
         const cols = grid[i];
         const barcode = cols[colMap.barcode];
         
-        // Skip rows that don't have a valid barcode string length
-        if (!barcode || barcode.length < 4) continue;
+        if (!barcode || barcode.length < 5) continue;
 
         if (!globalPoNum && colMap.po !== -1 && cols[colMap.po]) globalPoNum = cols[colMap.po];
         if (!globalBuyer && colMap.buyer !== -1 && cols[colMap.buyer]) globalBuyer = cols[colMap.buyer];
@@ -219,9 +218,8 @@ export default function ManagerDashboard() {
       }
 
       if (parsedItems.length === 0) {
-        // Fallback error logging to see exactly why the columns broke
-        const debugCols = `Barcode(${colMap.barcode}) / Qty(${colMap.qty}). Extracted Row: [${grid[hRow + 1]?.join(', ')}]`;
-        throw new Error(`Could not detect line items. Debug Info: ${debugCols}`);
+        const debugCols = `Barcode(${colMap.barcode}) / OrderQty(${colMap.qty}) / PackQty(${colMap.pack}). Row Data: [${grid[hRow + 1]?.join(', ')}]`;
+        throw new Error(`Data Mapping Error. Engine Diagnostics: ${debugCols}`);
       }
 
       setMessage({ text: "Cross-referencing Master Catalog...", type: "info" });
@@ -294,12 +292,12 @@ export default function ManagerDashboard() {
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600">
                 <Loader2 className="animate-spin w-8 h-8 mb-2" />
-                <span className="font-semibold">Smart Parsing Data...</span>
+                <span className="font-semibold">Structuring Core Data...</span>
               </div>
             ) : (
               <div>
                 <p className="font-semibold text-lg text-gray-700">Click or Drag File here</p>
-                <p className="text-sm text-gray-500 mt-1">Universal Engine: Accepts ANY Retailer CSV Format</p>
+                <p className="text-sm text-gray-500 mt-1">Universal Engine: Validated for Sephora, Sociolla & ERPs</p>
               </div>
             )}
           </div>
