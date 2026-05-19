@@ -18,18 +18,13 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
     const loadData = async () => {
       setLoading(true);
       
-      // 1. Get PO Data
       const { data: poData } = await supabase.from("purchase_orders").select("*").eq("id", poId).single();
       if (poData) setPo(poData);
 
-      // 2. Get ALl Boxes for this PO
       const { data: boxData } = await supabase.from("po_boxes").select("*").eq("po_id", poId).order("box_barcode");
-      
-      // 3. Get All Items for this PO (So we can lookup the Product Names)
       const { data: itemData } = await supabase.from("po_items").select("barcode, product_name").eq("po_id", poId);
       
       if (boxData && itemData) {
-        // Safely map the product names to the boxes natively in Javascript
         const mergedBoxes = boxData.map(box => {
           const matchedItem = itemData.find(item => item.barcode === box.product_barcode);
           return {
@@ -88,7 +83,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
             key={box.id} 
             className="bg-white border-2 border-dashed border-gray-300 w-80 h-auto p-6 flex flex-col justify-between items-center rounded-xl text-center shadow-sm print:border-none print:w-[100mm] print:h-[150mm] print:page-break-after-always print:shadow-none print:rounded-none print:justify-start print:pt-12"
           >
-             <div>
+             <div className="w-full">
                <h2 className="font-black text-3xl tracking-tighter uppercase mb-1">AERIS BEAUTE</h2>
                <p className="text-sm font-bold border-b-2 border-black w-full pb-2 mb-4">PO: {po.po_number}</p>
                
@@ -96,12 +91,13 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
                   {box.product_name}
                </p>
 
-               <div className="my-4 bg-black text-white w-full py-2 font-black tracking-widest text-xl rounded">
+               {/* FIX: Browser Print-Safe Outline Box instead of Background Fill */}
+               <div className="my-4 border-y-4 border-black w-full py-2 font-black tracking-widest text-xl text-black">
                   CARTON {box.carton_number} OF {box.total_cartons}
                </div>
              </div>
 
-             <div className="mt-2 scale-110 print:scale-125 transform origin-top overflow-hidden flex flex-col items-center">
+             <div className="mt-2 scale-110 print:scale-125 transform origin-top overflow-hidden flex flex-col items-center w-full">
                 <Barcode 
                    value={box.box_barcode} 
                    format="CODE128" 

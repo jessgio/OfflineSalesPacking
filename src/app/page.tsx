@@ -47,6 +47,19 @@ export default function ManagerDashboard() {
     setSelectedPOs((prev: string[]) => prev.includes(id) ? prev.filter((poId: string) => poId !== id) : [...prev, id]);
   };
 
+  const formatErpDate = (raw: string) => {
+    if (!raw) return "";
+    const d = raw.replace(/\D/g, '');
+    if (d.length === 8) return `${d.substring(0,4)}-${d.substring(4,6)}-${d.substring(6,8)}`;
+    return raw.substring(0, 15); 
+  };
+
+  const get8DigitPO = (poNum: string) => {
+    const digits = poNum.replace(/\D/g, '');
+    const safeDigits = digits.length > 0 ? digits : Math.floor(Math.random() * 100000000).toString();
+    return safeDigits.substring(0,8).padEnd(8, '0');
+  };
+
   const handleMergePOs = async () => {
     const isConfirmed = window.confirm(`Merge ${selectedPOs.length} POs? This combines items and deletes original orders.`);
     if (!isConfirmed) return;
@@ -88,23 +101,35 @@ export default function ManagerDashboard() {
       const { error: insertError } = await supabase.from("po_items").insert(itemsToInsert);
       if (insertError) throw insertError;
 
+      // BOX LPN GENERATION FOR MERGED PO
+      const boxesToInsert: any[] = [];
+      let universalSequence = 1;
+      let globalCartonNo = 1; // GLOBAL CARTON TRACKER
+      const base8PO = get8DigitPO(newPoName);
+      
+      // Calculate Absolute Total Target Cartons across all SKUs
+      const globalTotalBoxes = mergedItemsArray.reduce((sum: number, item: any) => sum + item.inner_boxes, 0);
+
+      mergedItemsArray.forEach((item: any) => {
+        for (let i = 0; i < item.inner_boxes; i++) {
+          const paddedSeq = String(universalSequence).padStart(5, '0');
+          boxesToInsert.push({
+            po_id: newPo.id, product_barcode: item.barcode, box_barcode: `${base8PO}${paddedSeq}`,
+            carton_number: globalCartonNo, total_cartons: globalTotalBoxes, is_scanned: false
+          });
+          universalSequence++;
+          globalCartonNo++;
+        }
+      });
+
+      if (boxesToInsert.length > 0) {
+        await supabase.from("po_boxes").insert(boxesToInsert);
+      }
+
       await supabase.from("purchase_orders").delete().in("id", selectedPOs);
       setMessage({ text: `Successfully merged into 1 MASTER PO!`, type: "success" });
       setSelectedPOs([]); fetchPOs(); 
     } catch (error: any) { setMessage({ text: error.message || "Failed to merge.", type: "error" }); } finally { setUploading(false); }
-  };
-
-  const formatErpDate = (raw: string) => {
-    if (!raw) return "";
-    const d = raw.replace(/\D/g, '');
-    if (d.length === 8) return `${d.substring(0,4)}-${d.substring(4,6)}-${d.substring(6,8)}`;
-    return raw.substring(0, 15); 
-  };
-
-  const get8DigitPO = (poNum: string) => {
-    const digits = poNum.replace(/\D/g, '');
-    const safeDigits = digits.length > 0 ? digits : Math.floor(Math.random() * 100000000).toString();
-    return safeDigits.substring(0,8).padEnd(8, '0');
   };
 
   const handleFileUpload = async (event: any) => {
@@ -131,7 +156,6 @@ export default function ManagerDashboard() {
         let globalDelDate = "";
 
         if (activeTab === "DFI") {
-          
           const parseStandardCSV = (str: string) => {
             const rows = [];
             let row = [];
@@ -188,8 +212,6 @@ export default function ManagerDashboard() {
 
           for (let i = 0; i < Math.min(grid.length, 30); i++) {
             const row = grid[i];
-            
-            // I DELETED THE SIDEWAYS SNOOPING LOGIC HERE!
 
             const barcodeIdx = findColumnIndex(row, ['codeplu', 'barcode', 'plu', 'upc', 'ean', 'sku']);
             const qtyIdx = findColumnIndex(row, ['orderquantity', 'qty', 'quantity', 'amount'], ['pack', 'inner']);
@@ -280,9 +302,13 @@ export default function ManagerDashboard() {
 
         const boxesToInsert: any[] = [];
         let universalSequence = 1;
+        
+        // NEW FEATURE: GLOBAL CARTON NUMBERING
+        let globalCartonNo = 1; 
+        const globalTotalBoxes = parsedItems.reduce((sum: number, item: any) => sum + item.innerBoxes, 0);
 
         parsedItems.forEach(item => {
-          for (let cartonNo = 1; cartonNo <= item.innerBoxes; cartonNo++) {
+          for (let i = 0; i < item.innerBoxes; i++) {
             const paddedSeq = String(universalSequence).padStart(5, '0');
             const uniqueBoxBarcode = `${base8PO}${paddedSeq}`; 
             
@@ -290,11 +316,12 @@ export default function ManagerDashboard() {
               po_id: poData.id,
               product_barcode: item.barcode,
               box_barcode: uniqueBoxBarcode,
-              carton_number: cartonNo,
-              total_cartons: item.innerBoxes,
+              carton_number: globalCartonNo, // 1 through Total Order
+              total_cartons: globalTotalBoxes, // The Total Order
               is_scanned: false
             });
             universalSequence++;
+            globalCartonNo++;
           }
         });
 
@@ -389,10 +416,10 @@ export default function ManagerDashboard() {
                          <div className="flex justify-between items-center text-gray-600"><span className="flex items-center gap-1.5"><Calendar className="w-4 h-4" /> Received:</span><span className="font-semibold">{po.po_date}</span></div>
                          <div className="flex justify-between items-center text-red-600 bg-red-50 px-2 py-1 -mx-2 rounded"><span className="flex items-center gap-1.5 font-bold"><Truck className="w-4 h-4" /> Deadline:</span><span className="font-bold">{po.delivery_date}</span></div>
                        </div>
-                       <p className="text-sm font-semibold text-gray-500 mt-4 px-2 py-1">{po.total_items} Total Units Target</p>
                      </div>
+                     
                      <div className="mt-6 flex flex-col gap-2">
-                        <Link href={`/labels/${po.id}`}><button className="w-full bg-blue-50 text-blue-700 border border-blue-200 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition"><Printer className="w-4 h-4" /> Print LPN Labels</button></Link>
+                        <Link href={`/labels/${po.id}`}><button className="w-full bg-blue-50 text-blue-700 border border-blue-200 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition"><Printer className="w-4 h-4" /> Print Labels</button></Link>
                         <Link href={`/pack/${po.id}`}><button className="w-full bg-black text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition active:scale-[0.98]">Start 2FA Scan <ArrowRight className="w-4 h-4" /></button></Link>
                      </div>
                    </div>
@@ -426,9 +453,11 @@ export default function ManagerDashboard() {
                          <span className="font-bold text-gray-800">{po.packed_by || 'Unknown'}</span>
                        </div>
                      </div>
-                     <Link href={`/pack/${po.id}`} className="mt-6 block">
-                       <button className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition"><Search className="w-4 h-4" /> View Audit & Reprint</button>
-                     </Link>
+                     <div className="mt-6 flex flex-col gap-2">
+                       {/* You can reprint labels from history too! */}
+                       <Link href={`/labels/${po.id}`}><button className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition"><Printer className="w-4 h-4" /> Reprint Labels</button></Link>
+                       <Link href={`/pack/${po.id}`}><button className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition"><Search className="w-4 h-4" /> View Audit & Reprint</button></Link>
+                     </div>
                    </div>
                  );
                })

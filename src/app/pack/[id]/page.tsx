@@ -20,7 +20,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   const searchInputRef = useRef<HTMLInputElement>(null);
   
   const [stagedProductBarcode, setStagedProductBarcode] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState({ message: "Scan a Product or LPN Box Label to begin.", type: "default" });
+  const [feedback, setFeedback] = useState({ message: "Scan a product barcode to begin.", type: "default" });
 
   const [packerName, setPackerName] = useState("");
   const [isClaimed, setIsClaimed] = useState(false);
