@@ -15,6 +15,7 @@ export default function ManagerDashboard() {
   const [viewMode, setViewMode] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
 
   useEffect(() => { fetchPOs(); }, []);
+
   useEffect(() => { setSelectedPOs([]); }, [viewMode]);
 
   const fetchPOs = async () => {
@@ -122,7 +123,6 @@ export default function ManagerDashboard() {
       try {
         let text = await file.text();
         text = text.replace(/^\uFEFF/, ''); 
-        const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
         let parsedItems: any[] = [];
         let globalPoNum = "";
@@ -130,16 +130,40 @@ export default function ManagerDashboard() {
         let globalPoDate = "";
         let globalDelDate = "";
 
-        // ====================================================================
-        // DFI STRICT PARSER: USING BULLETPROOF REGEX SPLITTER
-        // ====================================================================
         if (activeTab === "DFI") {
           
-          // Regex splits on commas that are ONLY outside of "" quotes. Perfectly preserves empty empty columns (,,)
-          const grid = rawLines.map(line => {
-            const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-            return cols.map(c => c.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
-          });
+          const parseStandardCSV = (str: string) => {
+            const rows = [];
+            let row = [];
+            let curr = '';
+            let inQuotes = false;
+            for (let i = 0; i < str.length; i++) {
+              const char = str[i];
+              const nextChar = str[i + 1];
+              
+              if (char === '"' && inQuotes && nextChar === '"') {
+                curr += '"'; i++;
+              } else if (char === '"') {
+                inQuotes = !inQuotes;
+              } else if (char === ',' && !inQuotes) {
+                row.push(curr.trim()); curr = '';
+              } else if ((char === '\n' || char === '\r') && !inQuotes) {
+                if (char === '\r' && nextChar === '\n') i++; 
+                row.push(curr.trim());
+                rows.push(row);
+                row = []; curr = '';
+              } else {
+                curr += char;
+              }
+            }
+            row.push(curr.trim());
+            if (row.length > 0) rows.push(row);
+            return rows.filter(r => r.join('').trim().length > 0);
+          };
+
+          const grid = parseStandardCSV(text);
+
+          if (grid.length < 2) throw new Error("File formatting is completely empty.");
 
           const findColumnIndex = (row: string[], aliases: string[], exclude: string[] = []) => {
             for (let alias of aliases) {
@@ -162,16 +186,10 @@ export default function ManagerDashboard() {
           let hRow = -1;
           let colMap = { po: -1, buyer: -1, barcode: -1, desc: -1, qty: -1, pack: -1, poDate: -1, delDate: -1 };
 
-          // FIND HEADERS STRICTLY
           for (let i = 0; i < Math.min(grid.length, 30); i++) {
             const row = grid[i];
-
-            row.forEach((cell: string, cellIdx: number) => {
-              if (!cell) return;
-              const lower = cell.toLowerCase();
-              if (!globalPoNum && (lower.includes('po number') || lower === 'po')) globalPoNum = row[cellIdx + 1] || "";
-              if (!globalBuyer && (lower.includes('buyer') || lower.includes('retailer'))) globalBuyer = row[cellIdx + 1] || "";
-            });
+            
+            // I DELETED THE SIDEWAYS SNOOPING LOGIC HERE!
 
             const barcodeIdx = findColumnIndex(row, ['codeplu', 'barcode', 'plu', 'upc', 'ean', 'sku']);
             const qtyIdx = findColumnIndex(row, ['orderquantity', 'qty', 'quantity', 'amount'], ['pack', 'inner']);
@@ -191,16 +209,14 @@ export default function ManagerDashboard() {
           }
 
           if (hRow === -1 || colMap.barcode === -1) {
-            throw new Error(`Could not find Barcode (Index: ${colMap.barcode}) or Order Quantity (Index: ${colMap.qty}) headers in ${file.name}`);
+            throw new Error(`Could not find Barcode or valid Order Quantity headers.`);
           }
 
-          // EXTRACT FROM DATA ROWS ONLY
           for (let i = hRow + 1; i < grid.length; i++) {
             const cols = grid[i];
             const barcode = cols[colMap.barcode];
             
-            // Logically skip blanks
-            if (!barcode || barcode === "" || barcode.length < 5 || barcode.includes('PLU')) continue;
+            if (!barcode || barcode.length < 5 || barcode.includes('PLU')) continue;
 
             if (!globalPoNum && colMap.po !== -1 && cols[colMap.po]) globalPoNum = cols[colMap.po];
             if (!globalBuyer && colMap.buyer !== -1 && cols[colMap.buyer]) globalBuyer = cols[colMap.buyer];
@@ -218,17 +234,11 @@ export default function ManagerDashboard() {
             });
           }
 
-          if (parsedItems.length === 0) {
-            throw new Error(`Data Extracted 0 items. Ensure the Barcode column has 5+ digits.`);
-          }
+          if (parsedItems.length === 0) throw new Error("Headers found, but no items detected below them.");
         }
 
-        if (activeTab === "SOCIOLLA") throw new Error("Sociolla extraction module pending setup.");
-        if (activeTab === "RESELLER") throw new Error("Reseller extraction module pending setup.");
+        if (activeTab === "SOCIOLLA" || activeTab === "RESELLER") throw new Error("Module under construction.");
 
-        // =============================================================
-        // UNIVERSAL DATABASE SAVE LOGIC
-        // =============================================================
         const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
         const { data: masterProducts } = await supabase.from('products').select('barcode, clean_name').in('barcode', uniqueBarcodes);
         const productDictionary: Record<string, string> = {};
