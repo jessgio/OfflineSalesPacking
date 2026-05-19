@@ -15,11 +15,7 @@ export default function ManagerDashboard() {
   const [viewMode, setViewMode] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
 
   useEffect(() => { fetchPOs(); }, []);
-
-  // SAFETY FEATURE: Clear selections whenever you switch views so you don't accidentally delete the wrong things
-  useEffect(() => {
-    setSelectedPOs([]);
-  }, [viewMode]);
+  useEffect(() => { setSelectedPOs([]); }, [viewMode]);
 
   const fetchPOs = async () => {
     const { data, error } = await supabase.from("purchase_orders").select("*").order("created_at", { ascending: false });
@@ -27,9 +23,8 @@ export default function ManagerDashboard() {
   };
 
   const handleDeletePO = async (id: string, poNumber: string) => {
-    const isConfirmed = window.confirm(`DANGER: Are you absolutely sure you want to completely delete PO ${poNumber}? This cannot be undone.`);
+    const isConfirmed = window.confirm(`DANGER: Are you absolutely sure you want to completely delete PO ${poNumber}? \n\nNote: If this is a finished order, you can just leave it in the Historical Archive!`);
     if (!isConfirmed) return;
-
     const { error } = await supabase.from("purchase_orders").delete().eq("id", id);
     if (!error) { setSelectedPOs((prev: string[]) => prev.filter((poId: string) => poId !== id)); fetchPOs(); }
   };
@@ -118,6 +113,7 @@ export default function ManagerDashboard() {
     setUploading(true);
     let successCount = 0;
     let failCount = 0;
+    let errorLogs: string[] = [];
 
     for (let f = 0; f < files.length; f++) {
       const file = files[f];
@@ -126,6 +122,7 @@ export default function ManagerDashboard() {
       try {
         let text = await file.text();
         text = text.replace(/^\uFEFF/, ''); 
+        const rawLines = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
 
         let parsedItems: any[] = [];
         let globalPoNum = "";
@@ -133,88 +130,185 @@ export default function ManagerDashboard() {
         let globalPoDate = "";
         let globalDelDate = "";
 
+        // ====================================================================
+        // DFI STRICT PARSER: USING BULLETPROOF REGEX SPLITTER
+        // ====================================================================
         if (activeTab === "DFI") {
-          const rawLinesText = text.split(/\r?\n/).filter((line: string) => line.trim().length > 0);
           
-          for (let i = 1; i < rawLinesText.length; i++) {
-            const line = rawLinesText[i];
-            const cols = line.split(/",""|,""|"",|","/);
-            const cleanCols = cols.map((c: string) => c.replace(/"/g, '').trim());
+          // Regex splits on commas that are ONLY outside of "" quotes. Perfectly preserves empty empty columns (,,)
+          const grid = rawLines.map(line => {
+            const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+            return cols.map(c => c.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+          });
 
-            if (cleanCols[0] === 'PO Number' || cleanCols.length < 30) continue; 
+          const findColumnIndex = (row: string[], aliases: string[], exclude: string[] = []) => {
+            for (let alias of aliases) {
+              const exactIdx = row.findIndex((c: string) => {
+                 const cleanC = c.toLowerCase().replace(/[^a-z0-9]/g, '');
+                 return cleanC === alias.replace(/[^a-z0-9]/g, '') && !exclude.some(ex => cleanC.includes(ex));
+              });
+              if (exactIdx !== -1) return exactIdx;
+            }
+            for (let alias of aliases) {
+              const partialIdx = row.findIndex((c: string) => {
+                 const cleanC = c.toLowerCase().replace(/[^a-z0-9]/g, '');
+                 return cleanC.includes(alias.replace(/[^a-z0-9]/g, '')) && !exclude.some(ex => cleanC.includes(ex));
+              });
+              if (partialIdx !== -1) return partialIdx;
+            }
+            return -1;
+          };
 
-            const poNum = cleanCols[0];
-            const poDateRaw = cleanCols[1];
-            const buyerRaw = cleanCols[3];
-            const delDateRaw = cleanCols[23];
-            const barcode = cleanCols[25];
-            const desc = cleanCols[27];
-            const packQty = parseInt(cleanCols[30], 10) || 1;
-            const orderQty = parseInt(cleanCols[31], 10) || 0;
+          let hRow = -1;
+          let colMap = { po: -1, buyer: -1, barcode: -1, desc: -1, qty: -1, pack: -1, poDate: -1, delDate: -1 };
 
-            if (!barcode || barcode.length < 5 || barcode.includes('PLU')) continue;
+          // FIND HEADERS STRICTLY
+          for (let i = 0; i < Math.min(grid.length, 30); i++) {
+            const row = grid[i];
 
-            if (!globalPoNum && poNum) globalPoNum = poNum;
-            if (!globalBuyer && buyerRaw) globalBuyer = buyerRaw;
-            if (!globalPoDate && poDateRaw) globalPoDate = formatErpDate(poDateRaw);
-            if (!globalDelDate && delDateRaw) globalDelDate = formatErpDate(delDateRaw);
+            row.forEach((cell: string, cellIdx: number) => {
+              if (!cell) return;
+              const lower = cell.toLowerCase();
+              if (!globalPoNum && (lower.includes('po number') || lower === 'po')) globalPoNum = row[cellIdx + 1] || "";
+              if (!globalBuyer && (lower.includes('buyer') || lower.includes('retailer'))) globalBuyer = row[cellIdx + 1] || "";
+            });
+
+            const barcodeIdx = findColumnIndex(row, ['codeplu', 'barcode', 'plu', 'upc', 'ean', 'sku']);
+            const qtyIdx = findColumnIndex(row, ['orderquantity', 'qty', 'quantity', 'amount'], ['pack', 'inner']);
+
+            if (barcodeIdx !== -1 && qtyIdx !== -1) {
+              hRow = i; 
+              colMap.barcode = barcodeIdx;
+              colMap.qty = qtyIdx;
+              colMap.desc = findColumnIndex(row, ['productdescription', 'description', 'name', 'product', 'item']);
+              colMap.pack = findColumnIndex(row, ['packquantity', 'pack', 'inner', 'caseqty']);
+              colMap.po = findColumnIndex(row, ['ponumber', 'purchaseorder', 'orderid']);
+              colMap.poDate = findColumnIndex(row, ['podate', 'orderdate']);
+              colMap.delDate = findColumnIndex(row, ['deliverydate', 'deadline', 'shipdate', 'delivery']);
+              colMap.buyer = findColumnIndex(row, ['buyername', 'retailername', 'storename', 'buyer']);
+              break;
+            }
+          }
+
+          if (hRow === -1 || colMap.barcode === -1) {
+            throw new Error(`Could not find Barcode (Index: ${colMap.barcode}) or Order Quantity (Index: ${colMap.qty}) headers in ${file.name}`);
+          }
+
+          // EXTRACT FROM DATA ROWS ONLY
+          for (let i = hRow + 1; i < grid.length; i++) {
+            const cols = grid[i];
+            const barcode = cols[colMap.barcode];
+            
+            // Logically skip blanks
+            if (!barcode || barcode === "" || barcode.length < 5 || barcode.includes('PLU')) continue;
+
+            if (!globalPoNum && colMap.po !== -1 && cols[colMap.po]) globalPoNum = cols[colMap.po];
+            if (!globalBuyer && colMap.buyer !== -1 && cols[colMap.buyer]) globalBuyer = cols[colMap.buyer];
+            if (!globalPoDate && colMap.poDate !== -1 && cols[colMap.poDate]) globalPoDate = formatErpDate(cols[colMap.poDate]);
+            if (!globalDelDate && colMap.delDate !== -1 && cols[colMap.delDate]) globalDelDate = formatErpDate(cols[colMap.delDate]);
+
+            const orderQty = colMap.qty !== -1 ? parseInt(cols[colMap.qty], 10) || 0 : 0;
+            const packQty = colMap.pack !== -1 ? parseInt(cols[colMap.pack], 10) || 1 : 1; 
 
             parsedItems.push({
               barcode: barcode,
-              productName: desc || "Aeris SKU",
+              productName: colMap.desc !== -1 ? cols[colMap.desc] : "Aeris SKU",
               innerBoxes: orderQty, 
               targetQty: orderQty * packQty 
             });
           }
-          if (parsedItems.length === 0) throw new Error(`Data Mapping Error. Check columns!`);
+
+          if (parsedItems.length === 0) {
+            throw new Error(`Data Extracted 0 items. Ensure the Barcode column has 5+ digits.`);
+          }
         }
 
-        if (activeTab === "SOCIOLLA" || activeTab === "RESELLER") throw new Error("Module pending setup.");
+        if (activeTab === "SOCIOLLA") throw new Error("Sociolla extraction module pending setup.");
+        if (activeTab === "RESELLER") throw new Error("Reseller extraction module pending setup.");
 
+        // =============================================================
+        // UNIVERSAL DATABASE SAVE LOGIC
+        // =============================================================
         const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
         const { data: masterProducts } = await supabase.from('products').select('barcode, clean_name').in('barcode', uniqueBarcodes);
         const productDictionary: Record<string, string> = {};
-        if (masterProducts) masterProducts.forEach((p: any) => { productDictionary[p.barcode] = p.clean_name; });
+        if (masterProducts) {
+          masterProducts.forEach((p: any) => { productDictionary[p.barcode] = p.clean_name; });
+        }
 
         const totalItems = parsedItems.reduce((sum: number, item: any) => sum + item.targetQty, 0);       
         const cleanPoNumber = globalPoNum || `PO-${Math.floor(Math.random()*1000)}`;
         const base8PO = get8DigitPO(cleanPoNumber);
 
-        const { data: poData, error: poError } = await supabase.from("purchase_orders").insert([{ 
-            po_number: cleanPoNumber, retailer_name: globalBuyer || activeTab, po_date: globalPoDate || 'N/A', delivery_date: globalDelDate || 'N/A', total_items: totalItems, status: "Not Started" 
-        }]).select().single();
-        if (poError) throw poError;
+        const { data: poData, error: poError } = await supabase
+          .from("purchase_orders")
+          .insert([{ 
+              po_number: cleanPoNumber, 
+              retailer_name: globalBuyer || activeTab,
+              po_date: globalPoDate || 'N/A',
+              delivery_date: globalDelDate || 'N/A',
+              total_items: totalItems,
+              status: "Not Started" 
+          }])
+          .select()
+          .single();
+
+        if (poError) throw new Error(`Database Error (PO): ${poError.message}`);
 
         const itemsToInsert = parsedItems.map((item: any) => ({
-          po_id: poData.id, barcode: item.barcode, product_name: productDictionary[item.barcode] || item.productName || "Aeris SKU",
-          inner_boxes: item.innerBoxes, target_qty: item.targetQty, scanned_qty: 0, is_short: false, scan_history: []
+          po_id: poData.id,
+          barcode: item.barcode,
+          product_name: productDictionary[item.barcode] || item.productName || "Aeris SKU",
+          inner_boxes: item.innerBoxes, 
+          target_qty: item.targetQty,
+          scanned_qty: 0,
+          scan_history: []
         }));
 
         const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert).select();
-        if (itemsError) throw itemsError;
+        if (itemsError) throw new Error(`Database Error (Items): ${itemsError.message}`);
 
         const boxesToInsert: any[] = [];
         let universalSequence = 1;
+
         parsedItems.forEach(item => {
           for (let cartonNo = 1; cartonNo <= item.innerBoxes; cartonNo++) {
             const paddedSeq = String(universalSequence).padStart(5, '0');
-            boxesToInsert.push({ po_id: poData.id, product_barcode: item.barcode, box_barcode: `${base8PO}${paddedSeq}`, carton_number: cartonNo, total_cartons: item.innerBoxes, is_scanned: false });
+            const uniqueBoxBarcode = `${base8PO}${paddedSeq}`; 
+            
+            boxesToInsert.push({
+              po_id: poData.id,
+              product_barcode: item.barcode,
+              box_barcode: uniqueBoxBarcode,
+              carton_number: cartonNo,
+              total_cartons: item.innerBoxes,
+              is_scanned: false
+            });
             universalSequence++;
           }
         });
 
         if (boxesToInsert.length > 0) {
           const { error: boxesError } = await supabase.from("po_boxes").insert(boxesToInsert);
-          if (boxesError) throw boxesError;
+          if (boxesError) throw new Error(`Database Error (Boxes): ${boxesError.message}`);
         }
 
         successCount++;
-      } catch (error: any) { failCount++; }
+
+      } catch (error: any) {
+        console.error(`Upload error on ${file.name}:`, error);
+        errorLogs.push(`${file.name}: ${error.message}`);
+        failCount++;
+      }
     }
 
     setUploading(false); fetchPOs(); event.target.value = null; 
-    if (failCount === 0) setMessage({ text: `Success! Bulk processed ${successCount} POs.`, type: "success" });
-    else setMessage({ text: `Completed ${successCount} files. Failed on ${failCount} files.`, type: successCount > 0 ? "info" : "error" });
+    
+    if (failCount === 0) {
+      setMessage({ text: `Success! Bulk processed ${successCount} POs.`, type: "success" });
+    } else {
+      setMessage({ text: `Failed on ${failCount} files. Errors: ${errorLogs.join(' | ')}`, type: "error" });
+    }
   };
 
   const activePOs = pos.filter(p => !["Completed", "Partial Fulfillment"].includes(p.status));
@@ -269,13 +363,11 @@ export default function ManagerDashboard() {
                  const isSelected = selectedPOs.includes(po.id);
                  return (
                    <div key={po.id} className={`bg-white border-2 p-6 rounded-xl shadow-sm flex flex-col justify-between transition group relative cursor-default ${isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-gray-200 hover:border-black'}`}>
-                     
                      <div className="absolute top-4 left-4 z-10 cursor-pointer p-2 -m-2" onClick={() => togglePoSelection(po.id)}>
                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300 group-hover:border-gray-400'}`}>
                          {isSelected && <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                        </div>
                      </div>
-
                      <button onClick={() => handleDeletePO(po.id, po.po_number)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded transition opacity-0 group-hover:opacity-100" title="Delete PO"><Trash2 className="w-5 h-5" /></button>
                      <div className="pl-8 pt-1">
                        <div className="flex justify-between items-start mb-3">
@@ -289,7 +381,6 @@ export default function ManagerDashboard() {
                        </div>
                        <p className="text-sm font-semibold text-gray-500 mt-4 px-2 py-1">{po.total_items} Total Units Target</p>
                      </div>
-                     
                      <div className="mt-6 flex flex-col gap-2">
                         <Link href={`/labels/${po.id}`}><button className="w-full bg-blue-50 text-blue-700 border border-blue-200 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition"><Printer className="w-4 h-4" /> Print LPN Labels</button></Link>
                         <Link href={`/pack/${po.id}`}><button className="w-full bg-black text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition active:scale-[0.98]">Start 2FA Scan <ArrowRight className="w-4 h-4" /></button></Link>
@@ -306,19 +397,14 @@ export default function ManagerDashboard() {
              ) : (
                historyPOs.map((po: any) => {
                  const isSelected = selectedPOs.includes(po.id);
-
                  return (
                    <div key={po.id} className={`bg-gray-50 border-2 p-6 rounded-xl shadow-sm flex flex-col justify-between transition group relative cursor-default ${isSelected ? 'border-red-500 bg-red-50/30' : 'border-gray-200 hover:border-gray-300'}`}>
-                     
-                     {/* ENABLED CHECKBOX ON HISTORY TAB FOR MASS DELETION */}
                      <div className="absolute top-4 left-4 z-10 cursor-pointer p-2 -m-2" onClick={() => togglePoSelection(po.id)}>
                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-red-500 border-red-500' : 'bg-white border-gray-300 group-hover:border-gray-400'}`}>
                          {isSelected && <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                        </div>
                      </div>
-
                      <button onClick={() => handleDeletePO(po.id, po.po_number)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded transition opacity-0 group-hover:opacity-100"><Trash2 className="w-5 h-5" /></button>
-                     
                      <div className="pl-8 pt-1">
                        <div className="flex justify-between items-start mb-3">
                          <h3 className="font-bold text-lg text-gray-900 pr-8 line-clamp-2">PO: {po.po_number}</h3>
@@ -330,7 +416,6 @@ export default function ManagerDashboard() {
                          <span className="font-bold text-gray-800">{po.packed_by || 'Unknown'}</span>
                        </div>
                      </div>
-
                      <Link href={`/pack/${po.id}`} className="mt-6 block">
                        <button className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition"><Search className="w-4 h-4" /> View Audit & Reprint</button>
                      </Link>
@@ -346,13 +431,8 @@ export default function ManagerDashboard() {
       {selectedPOs.length > 0 && ( 
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white border border-gray-200 shadow-2xl rounded-2xl px-6 py-4 flex items-center justify-between gap-8 z-50 w-full max-w-2xl animate-fade-in-up">
           <div className="flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-xl ${viewMode === 'ACTIVE' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>
-              {selectedPOs.length}
-            </div>
-            <div>
-              <p className="font-bold text-gray-900 leading-tight">POs Selected</p>
-              <p className="text-xs text-gray-500 font-medium">{viewMode === 'ACTIVE' ? "Batch pick or delete" : "Bulk purge archive"}</p>
-            </div>
+             <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-xl ${viewMode === 'ACTIVE' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>{selectedPOs.length}</div>
+             <div><p className="font-bold text-gray-900 leading-tight">POs Selected</p><p className="text-xs text-gray-500 font-medium">{viewMode === 'ACTIVE' ? "Batch pick or delete" : "Bulk purge archive"}</p></div>
           </div>
           <div className="flex gap-2">
             <button onClick={() => setSelectedPOs([])} className="px-3 py-2 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-lg flex items-center gap-1 transition"><X className="w-4 h-4" /> Clear</button>
