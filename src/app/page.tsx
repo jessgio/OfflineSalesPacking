@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X, Store, Users, Printer, Archive, Search } from "lucide-react";
+import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X, Store, Users, Printer, Archive, Search, Box } from "lucide-react";
 import Link from "next/link";
 
 export default function ManagerDashboard() {
@@ -358,9 +358,16 @@ export default function ManagerDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 pb-32"> 
       <div className="max-w-6xl mx-auto p-8">
-        <header className="mb-8 border-b pb-4 border-gray-200">
-          <h1 className="text-3xl font-bold text-gray-900">Aeris Fulfillment Dashboard</h1>
-          <p className="text-gray-500 mt-1">LPN (Inner Box 2FA) Scan-to-Pack Engine</p>
+        <header className="mb-8 border-b pb-4 border-gray-200 flex flex-wrap justify-between items-start gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Aeris Fulfillment Dashboard</h1>
+            <p className="text-gray-500 mt-1">LPN (Inner Box 2FA) Scan-to-Pack Engine</p>
+          </div>
+          <Link href="/master-ship">
+            <button className="bg-purple-600 text-white px-5 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-700 transition shadow-sm">
+              <Box className="w-5 h-5" /> Master Box Shipping
+            </button>
+          </Link>
         </header>
 
         <section className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 mb-8 max-w-2xl">
