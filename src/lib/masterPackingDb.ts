@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient";
 import { generateMasterBarcode, sessionCodeFromId } from "./masterBoxBarcode";
 import type {
   ManifestInnerBox,
+  ManifestLooseInnerBox,
   ManifestMasterBox,
   MasterBox,
   MasterBoxContent,
@@ -296,6 +297,43 @@ export async function fetchSessionPoIds(sessionId: string): Promise<string[]> {
   return (data ?? []).map((r: { po_id: string }) => r.po_id);
 }
 
+export async function fetchSessionInnerCoverage(sessionId: string): Promise<{
+  total_inner_boxes: number;
+  assigned_inner_boxes: number;
+  loose_inner_boxes: number;
+}> {
+  const poIds = await fetchSessionPoIds(sessionId);
+  if (poIds.length === 0) {
+    return { total_inner_boxes: 0, assigned_inner_boxes: 0, loose_inner_boxes: 0 };
+  }
+
+  const { data: poBoxes, error: poBoxesError } = await supabase
+    .from("po_boxes")
+    .select("id")
+    .in("po_id", poIds);
+  if (poBoxesError) throw poBoxesError;
+
+  const poBoxIds = (poBoxes ?? []).map((b: { id: string }) => b.id);
+  if (poBoxIds.length === 0) {
+    return { total_inner_boxes: 0, assigned_inner_boxes: 0, loose_inner_boxes: 0 };
+  }
+
+  const { data: contents, error: contentsError } = await supabase
+    .from("po_master_box_contents")
+    .select("po_box_id")
+    .in("po_box_id", poBoxIds);
+  if (contentsError) throw contentsError;
+
+  const assigned = new Set((contents ?? []).map((c: { po_box_id: string }) => c.po_box_id)).size;
+  const total = poBoxIds.length;
+
+  return {
+    total_inner_boxes: total,
+    assigned_inner_boxes: assigned,
+    loose_inner_boxes: Math.max(total - assigned, 0),
+  };
+}
+
 export async function findInnerBoxInSession(
   sessionId: string,
   innerBarcode: string
@@ -399,6 +437,7 @@ export async function completePackingSession(sessionId: string, packedBy: string
     .eq("id", sessionId);
 
   const poIds = await fetchSessionPoIds(sessionId);
+  const poCompletionLabel = await buildPoCompletionLabel(sessionId, packedBy);
   if (poIds.length > 0) {
     const { error: poCompleteError } = await supabase
       .from("purchase_orders")
@@ -406,7 +445,7 @@ export async function completePackingSession(sessionId: string, packedBy: string
         master_pack_status: "completed",
         master_pack_session_id: sessionId,
         master_pack_completed_at: completedAt,
-        master_pack_completed_by: packedBy,
+        master_pack_completed_by: poCompletionLabel,
       })
       .in("id", poIds);
     if (poCompleteError) throw poCompleteError;
@@ -422,8 +461,11 @@ export async function buildManifest(sessionId: string): Promise<{
   session: PackingSession;
   pos: PurchaseOrderRow[];
   master_boxes: ManifestMasterBox[];
+  loose_inner_boxes: ManifestLooseInnerBox[];
   total_master_boxes: number;
   total_inner_boxes: number;
+  total_assigned_inner_boxes: number;
+  total_unassigned_inner_boxes: number;
 }> {
   const session = await fetchSession(sessionId);
   if (!session) throw new Error("Session not found");
@@ -454,6 +496,7 @@ export async function buildManifest(sessionId: string): Promise<{
   const { data: boxes } =
     poIds.length > 0 ? await supabase.from("po_boxes").select("*").in("po_id", poIds) : { data: [] };
   const boxById = Object.fromEntries((boxes ?? []).map((b: PoBoxRow) => [b.id, b]));
+  const assignedPoBoxIds = new Set(contents.map((c) => c.po_box_id));
 
   const master_boxes: ManifestMasterBox[] = masters.map((master) => {
     const innerForMaster = contents.filter((c) => c.master_box_id === master.id);
@@ -476,11 +519,54 @@ export async function buildManifest(sessionId: string): Promise<{
     };
   });
 
+  const loose_inner_boxes: ManifestLooseInnerBox[] = (boxes ?? [])
+    .filter((box: PoBoxRow) => !assignedPoBoxIds.has(box.id))
+    .map((box: PoBoxRow) => {
+      const poNumber = poNumberById[box.po_id] ?? "Unknown";
+      const productName =
+        productNameByPoBarcode[`${box.po_id}:${box.product_barcode}`] ?? "Aeris Product";
+      return {
+        inner_barcode: box.box_barcode,
+        po_number: poNumber,
+        product_name: productName,
+        carton_number: box.carton_number ?? 0,
+        is_assigned_to_master: false,
+      };
+    });
+
   return {
     session,
     pos,
     master_boxes,
+    loose_inner_boxes,
     total_master_boxes: masters.length,
     total_inner_boxes: contents.length,
+    total_assigned_inner_boxes: contents.length,
+    total_unassigned_inner_boxes: loose_inner_boxes.length,
   };
+}
+
+async function buildPoCompletionLabel(sessionId: string, packedBy: string): Promise<string> {
+  const poIds = await fetchSessionPoIds(sessionId);
+  if (poIds.length === 0) return packedBy;
+
+  const { data: poBoxes } = await supabase
+    .from("po_boxes")
+    .select("id, po_id")
+    .in("po_id", poIds);
+  const allPoBoxIds = (poBoxes ?? []).map((b: { id: string }) => b.id);
+
+  if (allPoBoxIds.length === 0) {
+    return `${packedBy} (NO-INNER-BOXES)`;
+  }
+
+  const { data: contents } = await supabase
+    .from("po_master_box_contents")
+    .select("po_box_id")
+    .in("po_box_id", allPoBoxIds);
+
+  const assignedCount = new Set((contents ?? []).map((c: { po_box_id: string }) => c.po_box_id)).size;
+  if (assignedCount === 0) return `${packedBy} (INNER-ONLY)`;
+  if (assignedCount < allPoBoxIds.length) return `${packedBy} (MIXED)`;
+  return packedBy;
 }

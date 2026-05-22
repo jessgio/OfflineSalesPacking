@@ -300,7 +300,24 @@ export default function MasterShipHome() {
                       className={`mt-0.5 w-6 h-6 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition ${
                         selected ? "bg-violet-600 border-violet-600" : "bg-white border-slate-300"
                       }`}
-                      aria-hidden
+                      role="button"
+                      tabIndex={moduleTab === "ACTIVE" && po.master_pack_status !== "completed" ? 0 : -1}
+                      onClick={() => {
+                        if (moduleTab === "ACTIVE" && po.master_pack_status !== "completed") {
+                          togglePo(po.id);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (
+                          (e.key === "Enter" || e.key === " ") &&
+                          moduleTab === "ACTIVE" &&
+                          po.master_pack_status !== "completed"
+                        ) {
+                          e.preventDefault();
+                          togglePo(po.id);
+                        }
+                      }}
+                      aria-label={`${selected ? "Unselect" : "Select"} PO ${po.po_number}`}
                     >
                       {selected && (
                         <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">

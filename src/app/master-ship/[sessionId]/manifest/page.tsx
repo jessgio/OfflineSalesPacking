@@ -13,7 +13,7 @@ import {
 } from "../../../../components/master-ship/ui";
 import { buildManifest } from "../../../../lib/masterPackingDb";
 import { getSupabaseErrorMessage } from "../../../../lib/supabaseError";
-import type { ManifestMasterBox } from "../../../../types/masterPacking";
+import type { ManifestLooseInnerBox, ManifestMasterBox } from "../../../../types/masterPacking";
 
 export default function MasterManifestPage(props: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(props.params);
@@ -24,7 +24,8 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
   const [completedAt, setCompletedAt] = useState<string | null>(null);
   const [pos, setPos] = useState<{ po_number: string; retailer_name: string }[]>([]);
   const [masterBoxes, setMasterBoxes] = useState<ManifestMasterBox[]>([]);
-  const [totals, setTotals] = useState({ masters: 0, inners: 0 });
+  const [looseInnerBoxes, setLooseInnerBoxes] = useState<ManifestLooseInnerBox[]>([]);
+  const [totals, setTotals] = useState({ masters: 0, inners: 0, assigned: 0, unassigned: 0 });
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -37,9 +38,12 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
         setCompletedAt(data.session.completed_at);
         setPos(data.pos);
         setMasterBoxes(data.master_boxes);
+        setLooseInnerBoxes(data.loose_inner_boxes);
         setTotals({
           masters: data.total_master_boxes,
           inners: data.total_inner_boxes,
+          assigned: data.total_assigned_inner_boxes,
+          unassigned: data.total_unassigned_inner_boxes,
         });
       } catch (e: unknown) {
         setError(getSupabaseErrorMessage(e, "Failed to load manifest"));
@@ -122,9 +126,11 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
               ))}
             </ul>
 
-            <div className="grid grid-cols-2 gap-4 mb-10">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
               <StatTile label="Master cartons" value={totals.masters} />
-              <StatTile label="Inner cartons" value={totals.inners} />
+              <StatTile label="Inner in masters" value={totals.assigned} />
+              <StatTile label="Loose inners" value={totals.unassigned} />
+              <StatTile label="Total inners" value={totals.assigned + totals.unassigned} />
             </div>
 
             {masterBoxes.length === 0 ? (
@@ -179,6 +185,47 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
                 ))}
               </div>
             )}
+
+            <div className="mt-10">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3">
+                Inner boxes not assigned to any master
+              </h3>
+              {looseInnerBoxes.length === 0 ? (
+                <p className="text-sm text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
+                  All inner boxes are assigned to master cartons.
+                </p>
+              ) : (
+                <div className="overflow-x-auto border border-amber-200 rounded-xl bg-amber-50/40">
+                  <table className="w-full text-sm min-w-[480px]">
+                    <thead>
+                      <tr className="bg-amber-100/60 text-left border-b border-amber-200">
+                        <th className="py-3 px-4 font-bold text-amber-900">Inner LPN</th>
+                        <th className="py-3 px-4 font-bold text-amber-900">PO</th>
+                        <th className="py-3 px-4 font-bold text-amber-900">Product</th>
+                        <th className="py-3 px-4 font-bold text-amber-900 w-20">Carton</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {looseInnerBoxes.map((inner) => (
+                        <tr
+                          key={inner.inner_barcode}
+                          className="border-b border-amber-100 last:border-0"
+                        >
+                          <td className="py-3 px-4">
+                            <span className="font-mono font-bold text-slate-900">{inner.inner_barcode}</span>
+                          </td>
+                          <td className="py-3 px-4 text-slate-800">{inner.po_number}</td>
+                          <td className="py-3 px-4 text-slate-700">{inner.product_name}</td>
+                          <td className="py-3 px-4 text-slate-600 tabular-nums">
+                            {inner.carton_number > 0 ? `#${inner.carton_number}` : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
 
           <footer className="px-6 py-4 border-t border-slate-100 text-center text-xs text-slate-400 print:mt-8">

@@ -77,3 +77,11 @@ export interface ManifestInnerBox {
   carton_number: number;
   scanned_at: string;
 }
+
+export interface ManifestLooseInnerBox {
+  inner_barcode: string;
+  po_number: string;
+  product_name: string;
+  carton_number: number;
+  is_assigned_to_master: boolean;
+}

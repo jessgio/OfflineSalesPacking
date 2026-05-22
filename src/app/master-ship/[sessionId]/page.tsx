@@ -32,6 +32,7 @@ import {
   deleteMasterBox,
   deletePackingSession,
   fetchMasterBoxes,
+  fetchSessionInnerCoverage,
   fetchSession,
   fetchSessionPos,
   reopenMasterBox,
@@ -45,6 +46,11 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
   const [session, setSession] = useState<PackingSession | null>(null);
   const [pos, setPos] = useState<PurchaseOrderRow[]>([]);
   const [masterBoxes, setMasterBoxes] = useState<MasterBox[]>([]);
+  const [innerCoverage, setInnerCoverage] = useState({
+    total_inner_boxes: 0,
+    assigned_inner_boxes: 0,
+    loose_inner_boxes: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -57,9 +63,11 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
         fetchSessionPos(sessionId),
         fetchMasterBoxes(sessionId),
       ]);
+      const coverage = await fetchSessionInnerCoverage(sessionId);
       setSession(s);
       setPos(poList);
       setMasterBoxes(boxes);
+      setInnerCoverage(coverage);
     } catch (e: unknown) {
       setError(getSupabaseErrorMessage(e, "Load failed"));
     } finally {
@@ -312,6 +320,15 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
 
           {!isCompleted && masterBoxes.length > 0 && (
             <div className="mt-8 pt-6 border-t border-slate-200">
+              <p className="mb-3 text-sm font-semibold text-slate-700">
+                Inner coverage:{" "}
+                <span className="text-violet-700">
+                  Assigned {innerCoverage.assigned_inner_boxes} / {innerCoverage.total_inner_boxes}
+                </span>
+                {innerCoverage.loose_inner_boxes > 0 && (
+                  <span className="text-amber-700"> ({innerCoverage.loose_inner_boxes} loose)</span>
+                )}
+              </p>
               <BtnPrimary
                 onClick={handleEndPacking}
                 disabled={busy}
