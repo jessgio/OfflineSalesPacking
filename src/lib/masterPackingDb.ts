@@ -14,7 +14,9 @@ import type {
 export async function fetchEligiblePurchaseOrders(): Promise<PurchaseOrderRow[]> {
   const { data, error } = await supabase
     .from("purchase_orders")
-    .select("id, po_number, retailer_name, status, po_date, delivery_date")
+    .select(
+      "id, po_number, retailer_name, status, po_date, delivery_date, master_pack_status, master_pack_session_id, master_pack_completed_at, master_pack_completed_by"
+    )
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PurchaseOrderRow[];
@@ -32,6 +34,35 @@ export async function fetchPackingSessions(): Promise<PackingSession[]> {
 
 export async function createPackingSession(poIds: string[]): Promise<PackingSession> {
   if (poIds.length === 0) throw new Error("Select at least one PO.");
+
+  const { data: poStates, error: poStateError } = await supabase
+    .from("purchase_orders")
+    .select("id, po_number, master_pack_status, master_pack_session_id")
+    .in("id", poIds);
+  if (poStateError) throw poStateError;
+
+  const alreadyCompleted = (poStates ?? []).filter(
+    (po: { master_pack_status: string }) => po.master_pack_status === "completed"
+  );
+  if (alreadyCompleted.length > 0) {
+    throw new Error(
+      `These POs already completed master packing: ${alreadyCompleted
+        .map((po: { po_number: string }) => po.po_number)
+        .join(", ")}`
+    );
+  }
+
+  const inProgress = (poStates ?? []).filter(
+    (po: { master_pack_status: string; master_pack_session_id: string | null }) =>
+      po.master_pack_status === "in_progress" && !!po.master_pack_session_id
+  );
+  if (inProgress.length > 0) {
+    throw new Error(
+      `These POs are already in another master packing session: ${inProgress
+        .map((po: { po_number: string }) => po.po_number)
+        .join(", ")}`
+    );
+  }
 
   const sessionCode = String(Date.now() % 100000000).padStart(8, "0");
   const { data: session, error: sessionError } = await supabase
@@ -53,6 +84,17 @@ export async function createPackingSession(poIds: string[]): Promise<PackingSess
   const { error: linkError } = await supabase.from("packing_session_pos").insert(links);
   if (linkError) throw linkError;
 
+  const { error: poUpdateError } = await supabase
+    .from("purchase_orders")
+    .update({
+      master_pack_status: "in_progress",
+      master_pack_session_id: session.id,
+      master_pack_completed_at: null,
+      master_pack_completed_by: null,
+    })
+    .in("id", poIds);
+  if (poUpdateError) throw poUpdateError;
+
   return { ...session, session_code: code } as PackingSession;
 }
 
@@ -73,7 +115,9 @@ export async function fetchSessionPos(sessionId: string): Promise<PurchaseOrderR
 
   const { data: pos, error } = await supabase
     .from("purchase_orders")
-    .select("id, po_number, retailer_name, status, po_date, delivery_date")
+    .select(
+      "id, po_number, retailer_name, status, po_date, delivery_date, master_pack_status, master_pack_session_id, master_pack_completed_at, master_pack_completed_by"
+    )
     .in("id", poIds);
   if (error) throw error;
   return (pos ?? []) as PurchaseOrderRow[];
@@ -130,6 +174,22 @@ export async function reopenMasterBox(masterBoxId: string): Promise<void> {
 }
 
 export async function deletePackingSession(sessionId: string): Promise<void> {
+  const poIds = await fetchSessionPoIds(sessionId);
+
+  if (poIds.length > 0) {
+    const { error: resetError } = await supabase
+      .from("purchase_orders")
+      .update({
+        master_pack_status: "not_started",
+        master_pack_session_id: null,
+        master_pack_completed_at: null,
+        master_pack_completed_by: null,
+      })
+      .in("id", poIds)
+      .eq("master_pack_status", "in_progress");
+    if (resetError) throw resetError;
+  }
+
   const { error } = await supabase.from("packing_sessions").delete().eq("id", sessionId);
   if (error) throw error;
 }
@@ -294,14 +354,30 @@ export async function fetchContentsForSession(sessionId: string): Promise<
 }
 
 export async function completePackingSession(sessionId: string, packedBy: string): Promise<void> {
+  const completedAt = new Date().toISOString();
+
   await supabase
     .from("packing_sessions")
     .update({
       status: "completed",
       packed_by: packedBy,
-      completed_at: new Date().toISOString(),
+      completed_at: completedAt,
     })
     .eq("id", sessionId);
+
+  const poIds = await fetchSessionPoIds(sessionId);
+  if (poIds.length > 0) {
+    const { error: poCompleteError } = await supabase
+      .from("purchase_orders")
+      .update({
+        master_pack_status: "completed",
+        master_pack_session_id: sessionId,
+        master_pack_completed_at: completedAt,
+        master_pack_completed_by: packedBy,
+      })
+      .in("id", poIds);
+    if (poCompleteError) throw poCompleteError;
+  }
 
   const openBoxes = await fetchMasterBoxes(sessionId);
   for (const box of openBoxes.filter((b) => b.status === "open")) {

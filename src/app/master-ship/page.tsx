@@ -26,7 +26,8 @@ export default function MasterShipHome() {
   const [pos, setPos] = useState<PurchaseOrderRow[]>([]);
   const [sessions, setSessions] = useState<PackingSession[]>([]);
   const [selectedPoIds, setSelectedPoIds] = useState<string[]>([]);
-  const [poFilter, setPoFilter] = useState<"all" | "active" | "completed">("all");
+  const [poFilter, setPoFilter] = useState<"all" | "active" | "completed_po">("all");
+  const [moduleTab, setModuleTab] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -56,24 +57,44 @@ export default function MasterShipHome() {
   };
 
   useEffect(() => {
+    setSelectedPoIds([]);
+  }, [moduleTab, poFilter]);
+
+  useEffect(() => {
     load();
   }, []);
 
   const togglePo = (id: string) => {
+    const po = pos.find((p) => p.id === id);
+    if (!po || po.master_pack_status === "completed") return;
     setSelectedPoIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
   const isCompletedPo = (status: string) => ["Completed", "Partial Fulfillment"].includes(status);
-  const filteredPos = pos.filter((po) => {
+  const isMasterCompleted = (po: PurchaseOrderRow) => po.master_pack_status === "completed";
+  const activeMasterPos = pos.filter((po) => !isMasterCompleted(po));
+  const historyMasterPos = pos.filter((po) => isMasterCompleted(po));
+  const sourcePos = moduleTab === "ACTIVE" ? activeMasterPos : historyMasterPos;
+
+  const filteredPos = sourcePos.filter((po) => {
     if (poFilter === "active") return !isCompletedPo(po.status);
-    if (poFilter === "completed") return isCompletedPo(po.status);
+    if (poFilter === "completed_po") return isCompletedPo(po.status);
     return true;
   });
 
   const handleCreateSession = async () => {
     if (selectedPoIds.length === 0) return;
+    const hasCompletedPo = selectedPoIds.some((id) => {
+      const po = pos.find((p) => p.id === id);
+      return po?.master_pack_status === "completed";
+    });
+    if (hasCompletedPo) {
+      setError("One or more selected POs already completed master packing and cannot be packed again.");
+      return;
+    }
+
     setCreating(true);
     setError("");
     try {
@@ -119,7 +140,32 @@ export default function MasterShipHome() {
 
       {error && <AlertBanner variant={setupHint ? "warning" : "error"}>{error}</AlertBanner>}
 
-      {sessions.length > 0 && (
+      <div className="mb-6 flex gap-2 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setModuleTab("ACTIVE")}
+          className={`px-4 py-2.5 text-sm font-bold border-b-2 transition ${
+            moduleTab === "ACTIVE"
+              ? "border-violet-600 text-violet-700"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Active master packing queue ({activeMasterPos.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setModuleTab("HISTORY")}
+          className={`px-4 py-2.5 text-sm font-bold border-b-2 transition ${
+            moduleTab === "HISTORY"
+              ? "border-violet-600 text-violet-700"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Master packing history ({historyMasterPos.length})
+        </button>
+      </div>
+
+      {moduleTab === "ACTIVE" && sessions.length > 0 && (
         <SectionCard
           title="Resume a session"
           description="Continue packing where you left off."
@@ -147,8 +193,12 @@ export default function MasterShipHome() {
       )}
 
       <SectionCard
-        title="Select purchase orders"
-        description="Tick every PO that ships together in this batch. You can merge different retailers if they leave on the same pallet."
+        title={moduleTab === "ACTIVE" ? "Select purchase orders" : "Master pack completion history"}
+        description={
+          moduleTab === "ACTIVE"
+            ? "Tick every PO that ships together in this batch. Completed master-packed POs are locked."
+            : "POs that already completed the master box module. These are read-only and cannot be packed again."
+        }
         icon={Package}
       >
         {!loading && pos.length > 0 && (
@@ -177,9 +227,9 @@ export default function MasterShipHome() {
             </button>
             <button
               type="button"
-              onClick={() => setPoFilter("completed")}
+              onClick={() => setPoFilter("completed_po")}
               className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
-                poFilter === "completed"
+                poFilter === "completed_po"
                   ? "bg-violet-600 text-white border-violet-600"
                   : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
               }`}
@@ -196,7 +246,7 @@ export default function MasterShipHome() {
           </div>
         ) : pos.length === 0 ? (
           <EmptyState
-            message="No purchase orders available"
+            message={moduleTab === "ACTIVE" ? "No purchase orders available" : "No master packed POs yet"}
             hint="Upload POs on the main dashboard first, then return here."
           />
         ) : filteredPos.length === 0 ? (
@@ -213,8 +263,11 @@ export default function MasterShipHome() {
                   key={po.id}
                   type="button"
                   onClick={() => togglePo(po.id)}
+                  disabled={moduleTab === "HISTORY" || po.master_pack_status === "completed"}
                   className={`text-left p-4 rounded-xl border-2 transition ${
-                    selected
+                    moduleTab === "HISTORY" || po.master_pack_status === "completed"
+                      ? "border-slate-200 bg-slate-50 opacity-80 cursor-not-allowed"
+                      : selected
                       ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200 ring-offset-2"
                       : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
                   }`}
@@ -237,7 +290,18 @@ export default function MasterShipHome() {
                       <p className="font-bold text-slate-900 text-lg leading-tight mt-0.5">{po.po_number}</p>
                       <p className="text-sm text-violet-800 font-semibold mt-1">{po.retailer_name}</p>
                       <div className="mt-3">
-                        <StatusBadge status={po.status} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge status={po.status} />
+                          <StatusBadge status={po.master_pack_status} />
+                        </div>
+                        {po.master_pack_status === "completed" && (
+                          <p className="mt-1 text-xs font-semibold text-emerald-700">
+                            Completed by {po.master_pack_completed_by || "Unknown"} on{" "}
+                            {po.master_pack_completed_at
+                              ? new Date(po.master_pack_completed_at).toLocaleDateString()
+                              : "N/A"}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -248,7 +312,7 @@ export default function MasterShipHome() {
         )}
       </SectionCard>
 
-      {selectedPoIds.length > 0 && (
+      {moduleTab === "ACTIVE" && selectedPoIds.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-4 py-4 shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <p className="text-sm font-semibold text-slate-700 text-center sm:text-left">

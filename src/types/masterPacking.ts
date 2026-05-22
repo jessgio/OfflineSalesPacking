@@ -47,6 +47,10 @@ export interface PurchaseOrderRow {
   status: string;
   po_date: string;
   delivery_date: string;
+  master_pack_status: "not_started" | "in_progress" | "completed";
+  master_pack_session_id: string | null;
+  master_pack_completed_at: string | null;
+  master_pack_completed_by: string | null;
 }
 
 export interface PoBoxRow {
