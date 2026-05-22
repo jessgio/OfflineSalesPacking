@@ -11,11 +11,10 @@ import type {
   PurchaseOrderRow,
 } from "../types/masterPacking";
 
-export async function fetchActivePurchaseOrders(): Promise<PurchaseOrderRow[]> {
+export async function fetchEligiblePurchaseOrders(): Promise<PurchaseOrderRow[]> {
   const { data, error } = await supabase
     .from("purchase_orders")
     .select("id, po_number, retailer_name, status, po_date, delivery_date")
-    .not("status", "in", '("Completed","Partial Fulfillment")')
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PurchaseOrderRow[];

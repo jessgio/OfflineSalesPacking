@@ -16,7 +16,7 @@ import {
 } from "../../components/master-ship/ui";
 import {
   createPackingSession,
-  fetchActivePurchaseOrders,
+  fetchEligiblePurchaseOrders,
   fetchPackingSessions,
 } from "../../lib/masterPackingDb";
 import { getSupabaseErrorMessage } from "../../lib/supabaseError";
@@ -26,6 +26,7 @@ export default function MasterShipHome() {
   const [pos, setPos] = useState<PurchaseOrderRow[]>([]);
   const [sessions, setSessions] = useState<PackingSession[]>([]);
   const [selectedPoIds, setSelectedPoIds] = useState<string[]>([]);
+  const [poFilter, setPoFilter] = useState<"all" | "active" | "completed">("all");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +37,7 @@ export default function MasterShipHome() {
     setError("");
     try {
       const [poList, sessionList] = await Promise.all([
-        fetchActivePurchaseOrders(),
+        fetchEligiblePurchaseOrders(),
         fetchPackingSessions(),
       ]);
       setPos(poList);
@@ -63,6 +64,13 @@ export default function MasterShipHome() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
+
+  const isCompletedPo = (status: string) => ["Completed", "Partial Fulfillment"].includes(status);
+  const filteredPos = pos.filter((po) => {
+    if (poFilter === "active") return !isCompletedPo(po.status);
+    if (poFilter === "completed") return isCompletedPo(po.status);
+    return true;
+  });
 
   const handleCreateSession = async () => {
     if (selectedPoIds.length === 0) return;
@@ -143,19 +151,62 @@ export default function MasterShipHome() {
         description="Tick every PO that ships together in this batch. You can merge different retailers if they leave on the same pallet."
         icon={Package}
       >
+        {!loading && pos.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setPoFilter("all")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
+                poFilter === "all"
+                  ? "bg-violet-600 text-white border-violet-600"
+                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              All ({pos.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setPoFilter("active")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
+                poFilter === "active"
+                  ? "bg-violet-600 text-white border-violet-600"
+                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              Active ({pos.filter((po) => !isCompletedPo(po.status)).length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setPoFilter("completed")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
+                poFilter === "completed"
+                  ? "bg-violet-600 text-white border-violet-600"
+                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              Completed ({pos.filter((po) => isCompletedPo(po.status)).length})
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16 text-violet-600">
             <Loader2 className="animate-spin w-8 h-8 mb-3" />
-            <p className="text-sm font-semibold text-slate-600">Loading active POs…</p>
+            <p className="text-sm font-semibold text-slate-600">Loading eligible POs…</p>
           </div>
         ) : pos.length === 0 ? (
           <EmptyState
-            message="No active purchase orders"
+            message="No purchase orders available"
             hint="Upload POs on the main dashboard first, then return here."
+          />
+        ) : filteredPos.length === 0 ? (
+          <EmptyState
+            message="No POs match this filter"
+            hint="Try another filter to view more purchase orders."
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {pos.map((po) => {
+            {filteredPos.map((po) => {
               const selected = selectedPoIds.includes(po.id);
               return (
                 <button
