@@ -98,6 +98,39 @@ export async function createPackingSession(poIds: string[]): Promise<PackingSess
   return { ...session, session_code: code } as PackingSession;
 }
 
+export async function markMasterPackCompletedForPos(poIds: string[], completedBy: string): Promise<void> {
+  if (poIds.length === 0) throw new Error("Select at least one PO.");
+
+  const { data: poStates, error: poStateError } = await supabase
+    .from("purchase_orders")
+    .select("id, po_number, master_pack_status")
+    .in("id", poIds);
+  if (poStateError) throw poStateError;
+
+  const inProgress = (poStates ?? []).filter(
+    (po: { master_pack_status: string }) => po.master_pack_status === "in_progress"
+  );
+  if (inProgress.length > 0) {
+    throw new Error(
+      `These POs are currently in an active master packing session: ${inProgress
+        .map((po: { po_number: string }) => po.po_number)
+        .join(", ")}`
+    );
+  }
+
+  const completedAt = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from("purchase_orders")
+    .update({
+      master_pack_status: "completed",
+      master_pack_session_id: null,
+      master_pack_completed_at: completedAt,
+      master_pack_completed_by: completedBy,
+    })
+    .in("id", poIds);
+  if (updateError) throw updateError;
+}
+
 export async function fetchSession(sessionId: string): Promise<PackingSession | null> {
   const { data, error } = await supabase.from("packing_sessions").select("*").eq("id", sessionId).single();
   if (error) return null;

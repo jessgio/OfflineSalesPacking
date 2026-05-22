@@ -18,6 +18,7 @@ import {
   createPackingSession,
   fetchEligiblePurchaseOrders,
   fetchPackingSessions,
+  markMasterPackCompletedForPos,
 } from "../../lib/masterPackingDb";
 import { getSupabaseErrorMessage } from "../../lib/supabaseError";
 import type { PackingSession, PurchaseOrderRow } from "../../types/masterPacking";
@@ -30,6 +31,7 @@ export default function MasterShipHome() {
   const [moduleTab, setModuleTab] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [bulkCompleting, setBulkCompleting] = useState(false);
   const [error, setError] = useState("");
   const [setupHint, setSetupHint] = useState(false);
 
@@ -116,6 +118,30 @@ export default function MasterShipHome() {
         setError(msg);
       }
       setCreating(false);
+    }
+  };
+
+  const handleBulkMarkCompleted = async () => {
+    if (selectedPoIds.length === 0) return;
+
+    const initials = window.prompt("Enter your initials for audit trail (e.g. JH):");
+    if (!initials?.trim()) return;
+
+    const ok = window.confirm(
+      `Mark ${selectedPoIds.length} selected PO(s) as Master Completed without creating master boxes?\n\nUse this for inner-box-only shipping. This action will lock these POs from future master packing.`
+    );
+    if (!ok) return;
+
+    setBulkCompleting(true);
+    setError("");
+    try {
+      await markMasterPackCompletedForPos(selectedPoIds, `${initials.trim().toUpperCase()} (INNER-ONLY)`);
+      setSelectedPoIds([]);
+      await load();
+    } catch (e: unknown) {
+      setError(getSupabaseErrorMessage(e, "Failed to mark selected POs as completed"));
+    } finally {
+      setBulkCompleting(false);
     }
   };
 
@@ -259,14 +285,11 @@ export default function MasterShipHome() {
             {filteredPos.map((po) => {
               const selected = selectedPoIds.includes(po.id);
               return (
-                <button
+                <div
                   key={po.id}
-                  type="button"
-                  onClick={() => togglePo(po.id)}
-                  disabled={moduleTab === "HISTORY" || po.master_pack_status === "completed"}
                   className={`text-left p-4 rounded-xl border-2 transition ${
                     moduleTab === "HISTORY" || po.master_pack_status === "completed"
-                      ? "border-slate-200 bg-slate-50 opacity-80 cursor-not-allowed"
+                      ? "border-slate-200 bg-slate-50"
                       : selected
                       ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200 ring-offset-2"
                       : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
@@ -295,17 +318,36 @@ export default function MasterShipHome() {
                           <StatusBadge status={po.master_pack_status} />
                         </div>
                         {po.master_pack_status === "completed" && (
-                          <p className="mt-1 text-xs font-semibold text-emerald-700">
-                            Completed by {po.master_pack_completed_by || "Unknown"} on{" "}
-                            {po.master_pack_completed_at
-                              ? new Date(po.master_pack_completed_at).toLocaleDateString()
-                              : "N/A"}
-                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <p className="text-xs font-semibold text-emerald-700">
+                              Completed by {po.master_pack_completed_by || "Unknown"} on{" "}
+                              {po.master_pack_completed_at
+                                ? new Date(po.master_pack_completed_at).toLocaleDateString()
+                                : "N/A"}
+                            </p>
+                            {po.master_pack_session_id && (
+                              <Link
+                                href={`/master-ship/${po.master_pack_session_id}/manifest`}
+                                className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[11px] font-bold hover:bg-emerald-200 transition"
+                              >
+                                View manifest #{po.master_pack_session_id.slice(0, 8)}
+                              </Link>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
                   </div>
-                </button>
+                  {moduleTab === "ACTIVE" && po.master_pack_status !== "completed" && (
+                    <button
+                      type="button"
+                      onClick={() => togglePo(po.id)}
+                      className="mt-3 w-full text-sm font-semibold rounded-lg border border-violet-200 text-violet-700 py-1.5 hover:bg-violet-50 transition"
+                    >
+                      {selected ? "Unselect PO" : "Select PO"}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -321,12 +363,20 @@ export default function MasterShipHome() {
             </p>
             <BtnPrimary
               onClick={handleCreateSession}
-              disabled={creating || setupHint}
+              disabled={creating || bulkCompleting || setupHint}
               className="w-full sm:w-auto py-3.5 text-base"
             >
               {creating ? <Loader2 className="animate-spin w-5 h-5" /> : <Plus className="w-5 h-5" />}
               Start master packing
             </BtnPrimary>
+            <button
+              type="button"
+              onClick={handleBulkMarkCompleted}
+              disabled={creating || bulkCompleting || setupHint}
+              className="w-full sm:w-auto py-3.5 px-4 text-base rounded-xl border-2 border-emerald-200 text-emerald-700 font-bold hover:bg-emerald-50 transition disabled:opacity-50"
+            >
+              {bulkCompleting ? "Marking..." : "Mark selected as Inner-box-only completed"}
+            </button>
           </div>
         </div>
       )}
