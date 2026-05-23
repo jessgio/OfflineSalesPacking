@@ -19,11 +19,14 @@ import {
   buildSingleSkuCartons,
   emptyCarton,
   finalizeCartonPlan,
-  newCartonId,
   remainingQtyByItem,
   validateCartonPlan,
 } from "../../../lib/sociolla/cartonPlan";
+import { DashButton, SurfaceCard } from "../../../components/dashboard/primitives";
 
+/** Force readable fields regardless of OS dark-mode (globals use light-on-dark foreground). */
+const fieldInput =
+  "border border-slate-300 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:border-pink-500";
 export default function CartonPlanPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const poId = params.id;
@@ -189,11 +192,12 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
     );
   }
 
-  const totalAllocated = items.reduce((s, i) => s + i.target_qty, 0) - Object.values(remaining).reduce((s, n) => s + Math.max(n, 0), 0);
+  const orderTotal = items.reduce((s, i) => s + i.target_qty, 0);
+  const assignedTotal = orderTotal - Object.values(remaining).reduce((s, n) => s + Math.max(n, 0), 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
-      <header className="bg-white border-b sticky top-0 z-10">
+    <div className="min-h-screen bg-slate-100 pb-24 text-slate-900">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link href="/" className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200">
@@ -215,33 +219,47 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         </div>
       </header>
 
+      <div className="max-w-6xl mx-auto px-6 pt-4">
+        <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+          <p className="text-sm text-slate-600">
+            <span className="font-bold text-slate-900">{assignedTotal}</span> of{" "}
+            <span className="font-bold text-slate-900">{orderTotal}</span> pieces assigned to inner boxes
+          </p>
+          <div className="h-2 flex-1 min-w-[120px] max-w-xs bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-pink-500 transition-all"
+              style={{ width: `${orderTotal ? Math.min(100, (assignedTotal / orderTotal) * 100) : 0}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
       <main className="max-w-6xl mx-auto p-6 grid lg:grid-cols-2 gap-6">
         <section className="space-y-4">
-          <div className="bg-white rounded-xl border p-5">
-            <h2 className="font-bold text-gray-900 flex items-center gap-2 mb-1">
+          <SurfaceCard className="p-5 border-slate-200">
+            <h2 className="font-bold text-slate-900 flex items-center gap-2 mb-1">
               <Package className="w-5 h-5 text-pink-600" /> PO line items
             </h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Assign all {totalAllocated} of {items.reduce((s, i) => s + i.target_qty, 0)} pieces into inner boxes.
-              Combine low-qty SKUs into one box when needed.
+            <p className="text-sm text-slate-600 mb-4">
+              Set pieces per inner box, auto-generate, or combine low-qty SKUs into shared cartons.
             </p>
-            <ul className="space-y-3">
+            <ul className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
               {items.map((item) => {
                 const left = remaining[item.barcode] ?? item.target_qty;
                 return (
-                  <li key={item.id} className="border rounded-lg p-3">
-                    <p className="font-semibold text-gray-900 text-sm leading-snug">{item.product_name}</p>
+                  <li key={item.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                    <p className="font-semibold text-slate-900 text-sm leading-snug">{item.product_name}</p>
                     {item.retailer_sku && (
-                      <p className="text-xs text-gray-500 font-mono mt-0.5">[{item.retailer_sku}]</p>
+                      <p className="text-xs text-slate-500 font-mono mt-0.5">[{item.retailer_sku}]</p>
                     )}
                     <div className="flex justify-between items-center mt-2 text-sm">
-                      <span className="text-gray-600">Ordered: {item.target_qty}</span>
-                      <span className={left === 0 ? "text-green-700 font-bold" : left < 0 ? "text-red-600 font-bold" : "text-amber-700 font-bold"}>
+                      <span className="text-slate-600">Ordered: <strong className="text-slate-900">{item.target_qty}</strong></span>
+                      <span className={left === 0 ? "text-green-700 font-bold" : left < 0 ? "text-red-700 font-bold" : "text-amber-800 font-bold"}>
                         {left === 0 ? "Fully assigned" : left < 0 ? `Over by ${Math.abs(left)}` : `${left} left`}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <label className="text-xs text-gray-500 whitespace-nowrap">Pcs / inner box</label>
+                    <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-200">
+                      <label className="text-xs font-semibold text-slate-700 whitespace-nowrap">Pcs / inner box</label>
                       <input
                         type="number"
                         min={1}
@@ -252,58 +270,64 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                             [item.barcode]: Math.max(1, parseInt(e.target.value, 10) || 1),
                           }))
                         }
-                        className="w-16 border rounded px-2 py-1 text-sm"
+                        className={`${fieldInput} w-20`}
                       />
                     </div>
                   </li>
                 );
               })}
             </ul>
-            <button
+            <DashButton
               onClick={handleAutoGenerate}
-              className="mt-4 w-full border-2 border-dashed border-pink-200 text-pink-700 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-pink-50"
+              variant="ghost"
+              size="lg"
+              className="mt-4 w-full border-2 border-dashed border-pink-300 text-pink-800 bg-pink-50/50 hover:bg-pink-100"
             >
               <Sparkles className="w-4 h-4" /> Auto-generate from &quot;pcs / inner box&quot;
-            </button>
-          </div>
+            </DashButton>
+          </SurfaceCard>
         </section>
 
         <section className="space-y-4">
           <div className="flex justify-between items-center">
-            <h2 className="font-bold text-gray-900">Inner boxes ({plan.length})</h2>
-            <button
+            <h2 className="font-bold text-slate-900">Inner boxes ({plan.length})</h2>
+            <DashButton
               onClick={addCarton}
-              className="text-sm font-bold text-pink-600 flex items-center gap-1 hover:text-pink-800"
+              variant="ghost"
+              size="sm"
+              className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
             >
               <Plus className="w-4 h-4" /> Add empty box
-            </button>
+            </DashButton>
           </div>
 
           {plan.length === 0 ? (
-            <div className="bg-white border-2 border-dashed rounded-xl p-10 text-center text-gray-500">
+            <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-600">
               No inner boxes yet. Use auto-generate or add an empty box, then assign SKUs.
             </div>
           ) : (
-            plan.map((carton, index) => (
-              <div key={carton.id} className="bg-white rounded-xl border p-4">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="font-bold text-gray-900">Inner box {index + 1}</span>
-                  <button
+            <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
+            {plan.map((carton, index) => (
+              <SurfaceCard key={carton.id} className="p-4 border-slate-200">
+                <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
+                  <span className="font-bold text-slate-900">Inner box {index + 1}</span>
+                  <DashButton
                     onClick={() => removeCarton(carton.id)}
-                    className="text-red-500 hover:text-red-700 p-1"
+                    className="text-red-600 hover:bg-red-50 p-1.5 rounded"
                     title="Remove box"
                   >
                     <Trash2 className="w-4 h-4" />
-                  </button>
+                  </DashButton>
                 </div>
 
                 {carton.lines.length === 0 ? (
-                  <p className="text-sm text-gray-400 mb-3">No SKUs in this box yet.</p>
+                  <p className="text-sm text-slate-500 mb-3">No SKUs in this box yet — add from the list below.</p>
                 ) : (
                   <ul className="space-y-2 mb-3">
                     {carton.lines.map((line) => (
-                      <li key={line.barcode} className="flex items-center gap-2 text-sm">
-                        <span className="flex-1 truncate font-medium">{line.productName}</span>
+                      <li key={line.barcode} className="flex items-center gap-2 text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+                        <span className="flex-1 min-w-0 font-medium text-slate-900 leading-snug">{line.productName}</span>
+                        <label className="sr-only">Quantity</label>
                         <input
                           type="number"
                           min={1}
@@ -311,35 +335,42 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                           onChange={(e) =>
                             updateLineQty(carton.id, line.barcode, parseInt(e.target.value, 10) || 0)
                           }
-                          className="w-14 border rounded px-2 py-1 text-center"
+                          className={`${fieldInput} w-16 text-center`}
                         />
-                        <button
+                        <DashButton
                           onClick={() => removeLine(carton.id, line.barcode)}
-                          className="text-gray-400 hover:text-red-600"
+                          className="text-slate-500 hover:text-red-600 p-1"
+                          title="Remove from box"
                         >
                           <X className="w-4 h-4" />
-                        </button>
+                        </DashButton>
                       </li>
                     ))}
                   </ul>
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                {(items.some((item) => (remaining[item.barcode] ?? 0) > 0)) && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">Add SKU to this box</p>
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
                   {items
                     .filter((item) => (remaining[item.barcode] ?? 0) > 0)
                     .map((item) => (
-                      <button
+                      <DashButton
                         key={item.id}
                         onClick={() => addLineToCarton(carton.id, item, unitsPerBox[item.barcode] ?? 1)}
-                        className="text-xs bg-gray-100 hover:bg-pink-100 text-gray-800 px-2 py-1 rounded font-medium truncate max-w-full"
+                        className="text-xs bg-white border border-slate-300 hover:border-pink-400 hover:bg-pink-50 text-slate-800 px-2.5 py-1.5 rounded-md font-medium text-left"
                       >
-                        + {item.product_name.slice(0, 28)}
+                        + {item.product_name.slice(0, 32)}
                         {(remaining[item.barcode] ?? 0) > 1 ? ` (×${Math.min(unitsPerBox[item.barcode] ?? 1, remaining[item.barcode] ?? 1)})` : ""}
-                      </button>
+                      </DashButton>
                     ))}
-                </div>
-              </div>
-            ))
+                    </div>
+                  </div>
+                )}
+              </SurfaceCard>
+            ))}
+            </div>
           )}
 
           {validationErrors.length > 0 && (

@@ -2,6 +2,13 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowLeft, type LucideIcon } from "lucide-react";
 
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+const btnBase =
+  "inline-flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition disabled:opacity-50";
+
 export function MasterShipShell({
   children,
   className = "",
@@ -10,7 +17,7 @@ export function MasterShipShell({
   className?: string;
 }) {
   return (
-    <div className={`min-h-screen bg-slate-50 text-slate-900 ${className}`}>
+    <div className={cx("min-h-screen bg-slate-50 text-slate-900", className)}>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">{children}</div>
     </div>
   );
@@ -107,7 +114,10 @@ export function StatusBadge({ status }: { status: string }) {
 
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ring-1 ring-inset ${styles[normalized] ?? "bg-slate-100 text-slate-700 ring-slate-200"}`}
+      className={cx(
+        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ring-1 ring-inset",
+        styles[normalized] ?? "bg-slate-100 text-slate-700 ring-slate-200"
+      )}
     >
       {label}
     </span>
@@ -130,7 +140,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={`bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden ${className}`}>
+    <section className={cx("bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden", className)}>
       <div className="px-5 sm:px-6 py-4 sm:py-5 border-b border-slate-100 bg-slate-50/80 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -186,7 +196,7 @@ export function AlertBanner({
     info: "bg-sky-50 text-sky-900 border-sky-200",
   };
   return (
-    <div className={`mb-6 p-4 rounded-xl border text-sm leading-relaxed font-medium ${styles[variant]}`}>
+    <div className={cx("mb-6 p-4 rounded-xl border text-sm leading-relaxed font-medium", styles[variant])}>
       {children}
     </div>
   );
@@ -209,7 +219,7 @@ export function BtnPrimary({
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 text-white font-bold text-sm hover:bg-violet-700 disabled:opacity-50 transition shadow-sm ${className}`}
+      className={cx(btnBase, "px-5 py-2.5 bg-violet-600 text-white hover:bg-violet-700 shadow-sm", className)}
       {...props}
     >
       {children}
@@ -225,7 +235,11 @@ export function BtnSecondary({
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white border-2 border-slate-200 text-slate-800 font-bold text-sm hover:bg-slate-50 disabled:opacity-50 transition ${className}`}
+      className={cx(
+        btnBase,
+        "px-5 py-2.5 bg-white border-2 border-slate-200 text-slate-800 hover:bg-slate-50",
+        className
+      )}
       {...props}
     >
       {children}
@@ -241,7 +255,7 @@ export function BtnDanger({
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700 disabled:opacity-50 transition ${className}`}
+      className={cx(btnBase, "px-4 py-2 bg-red-600 text-white hover:bg-red-700", className)}
       {...props}
     >
       {children}
@@ -265,7 +279,11 @@ export function BarcodeDisplay({
   };
   return (
     <p
-      className={`font-mono font-bold tracking-wide break-all ${sizes[size]} ${inverted ? "text-white" : "text-slate-800"}`}
+      className={cx(
+        "font-mono font-bold tracking-wide break-all",
+        sizes[size],
+        inverted ? "text-white" : "text-slate-800"
+      )}
     >
       {value}
     </p>

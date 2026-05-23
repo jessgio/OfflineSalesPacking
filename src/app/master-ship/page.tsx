@@ -23,6 +23,9 @@ import {
 import { getSupabaseErrorMessage } from "../../lib/supabaseError";
 import type { PackingSession, PurchaseOrderRow } from "../../types/masterPacking";
 
+const tabBtnBase = "px-4 py-2.5 text-sm font-bold border-b-2 transition";
+const poFilterBtnBase = "px-3 py-1.5 rounded-lg text-sm font-semibold border transition";
+
 export default function MasterShipHome() {
   const [pos, setPos] = useState<PurchaseOrderRow[]>([]);
   const [sessions, setSessions] = useState<PackingSession[]>([]);
@@ -170,7 +173,7 @@ export default function MasterShipHome() {
         <button
           type="button"
           onClick={() => setModuleTab("ACTIVE")}
-          className={`px-4 py-2.5 text-sm font-bold border-b-2 transition ${
+          className={`${tabBtnBase} ${
             moduleTab === "ACTIVE"
               ? "border-violet-600 text-violet-700"
               : "border-transparent text-slate-500 hover:text-slate-700"
@@ -181,7 +184,7 @@ export default function MasterShipHome() {
         <button
           type="button"
           onClick={() => setModuleTab("HISTORY")}
-          className={`px-4 py-2.5 text-sm font-bold border-b-2 transition ${
+          className={`${tabBtnBase} ${
             moduleTab === "HISTORY"
               ? "border-violet-600 text-violet-700"
               : "border-transparent text-slate-500 hover:text-slate-700"
@@ -232,7 +235,7 @@ export default function MasterShipHome() {
             <button
               type="button"
               onClick={() => setPoFilter("all")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
+              className={`${poFilterBtnBase} ${
                 poFilter === "all"
                   ? "bg-violet-600 text-white border-violet-600"
                   : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
@@ -243,7 +246,7 @@ export default function MasterShipHome() {
             <button
               type="button"
               onClick={() => setPoFilter("active")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
+              className={`${poFilterBtnBase} ${
                 poFilter === "active"
                   ? "bg-violet-600 text-white border-violet-600"
                   : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
@@ -254,7 +257,7 @@ export default function MasterShipHome() {
             <button
               type="button"
               onClick={() => setPoFilter("completed_po")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
+              className={`${poFilterBtnBase} ${
                 poFilter === "completed_po"
                   ? "bg-violet-600 text-white border-violet-600"
                   : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"

@@ -2,10 +2,25 @@
 
 import { useState, useEffect, useRef, use } from "react";
 import { supabase } from "../../../lib/supabaseClient";
-// ADDED CALENDAR AND TRUCK HERE VVV
-import { ArrowLeft, CheckCircle2, AlertOctagon, ScanLine, Loader2, UserCircle, QrCode, Lock, Search, Filter, AlertTriangle, Printer, RotateCcw, Calendar, Truck } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ScanLine,
+  Loader2,
+  UserCircle,
+  QrCode,
+  Lock,
+  Search,
+  Filter,
+  AlertTriangle,
+  Printer,
+  RotateCcw,
+  Calendar,
+  Truck,
+} from "lucide-react";
 import Link from "next/link";
 import { needsCartonPlanning } from "../../../lib/sociolla/cartonPlan";
+import { DashButton } from "../../../components/dashboard/primitives";
 
 interface BoxContentRow {
   id: string;
@@ -115,11 +130,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       osc.start(); osc.stop(ctx.currentTime + 0.4);
     }
-  };
-
-  const formatTime = (isoString: string) => {
-    const date = new Date(isoString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
   const handleClaimPO = async (e: React.FormEvent) => {
@@ -492,7 +502,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   if (!isClaimed) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-8 z-50 fixed inset-0">
-        <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-10 text-center animate-fade-in-up">
+        <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-10 text-center">
           <div className="bg-blue-100 text-blue-600 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"><UserCircle className="w-10 h-10" /></div>
           <h1 className="text-3xl font-black text-gray-900 mb-2">{isHistorical ? "Audit Record" : "Check In"}</h1>
           <p className="text-gray-500 font-medium mb-8">
@@ -500,10 +510,10 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           </p>
           <form onSubmit={handleClaimPO}>
             <input ref={claimInputRef} type="text" placeholder="e.g., ADITYA" value={packerName} onChange={(e) => setPackerName(e.target.value)} className="w-full text-center text-2xl font-bold uppercase tracking-widest border-2 border-gray-300 rounded-xl py-4 focus:outline-none focus:border-blue-500 mb-6" />
-            <button type="submit" className="w-full bg-blue-600 text-white font-bold text-lg rounded-xl py-4 hover:bg-blue-700 transition">Unlock Station</button>
+            <DashButton type="submit" variant="primary" size="lg" className="w-full rounded-xl py-4">Unlock Station</DashButton>
           </form>
           <div className="mt-6 border-t pt-6">
-             <Link href="/"><button className="text-gray-400 font-medium hover:text-gray-600">← Back to Dashboard</button></Link>
+             <Link href="/"><DashButton variant="ghost" size="sm" className="text-gray-400 font-medium hover:text-gray-600">← Back to Dashboard</DashButton></Link>
           </div>
         </div>
       </div>
@@ -547,7 +557,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
         <header className="bg-white border-b px-8 py-4 flex justify-between items-center shadow-sm z-10 sticky top-0">
           <div className="flex items-center gap-4">
-            <Link href="/"><button className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition"><ArrowLeft className="w-5 h-5 text-gray-700" /></button></Link>
+            <Link href="/"><DashButton variant="ghost" size="sm" className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200"><ArrowLeft className="w-5 h-5 text-gray-700" /></DashButton></Link>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 border-b pb-2 mb-2">PO: {po.po_number}</h1>
               <div className="flex gap-6 items-center text-sm font-medium">
@@ -574,13 +584,13 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
         <main className="flex-1 p-8 max-w-5xl mx-auto w-full flex flex-col gap-6">
           
           {isOrderFullyPacked || isHistorical ? (
-            <div className="bg-green-50 border-2 border-green-500 p-8 rounded-xl shadow-lg text-center animate-fade-in-up">
+            <div className="bg-green-50 border-2 border-green-500 p-8 rounded-xl shadow-lg text-center">
               <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
               <h2 className="text-3xl font-black text-green-900 mb-2">Order Completed & Verified</h2>
               <p className="text-green-700 font-medium mb-6">Packed perfectly by <strong>{po.packed_by || packerName}</strong>.</p>
-              <button onClick={handleFinishAndPrint} className="bg-green-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-green-700 transition flex items-center gap-3 justify-center w-full max-w-md mx-auto shadow-md">
+              <DashButton onClick={handleFinishAndPrint} variant="success" size="lg" className="px-8 py-4 rounded-lg text-lg w-full max-w-md mx-auto shadow-md">
                 <Printer className="w-6 h-6" /> Print Official Packing Slip
-              </button>
+              </DashButton>
             </div>
           ) : (
             <div className={`p-8 rounded-xl border-4 flex flex-col items-center justify-center text-center gap-4 shadow-sm transition-colors ${
@@ -661,9 +671,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
                         <div className="flex items-center gap-4 mt-2">
                           {!done && !isHistorical && (
-                            <button onClick={() => handleMarkShortage(item.id, item.product_name)} className="text-amber-600 hover:text-amber-800 text-xs font-bold uppercase underline transition">
+                            <DashButton onClick={() => handleMarkShortage(item.id, item.product_name)} className="text-amber-600 hover:text-amber-800 text-xs uppercase underline">
                               Report Missing Cartons
-                            </button>
+                            </DashButton>
                           )}
                           {isShort && (
                             <div className="flex items-center gap-3">
@@ -671,9 +681,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                                 <AlertTriangle className="w-3 h-3 mr-1"/> Shortage Declared
                               </span>
                               {!isHistorical && (
-                                <button onClick={() => handleUndoShortage(item.id, item.product_name)} className="text-gray-500 hover:text-gray-900 text-xs font-bold uppercase flex items-center gap-1 transition pr-2">
+                                <DashButton onClick={() => handleUndoShortage(item.id, item.product_name)} className="text-gray-500 hover:text-gray-900 text-xs uppercase pr-2">
                                   <RotateCcw className="w-3 h-3" /> UNDO
-                                </button>
+                                </DashButton>
                               )}
                             </div>
                           )}

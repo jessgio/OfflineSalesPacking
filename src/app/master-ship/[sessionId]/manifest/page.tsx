@@ -15,6 +15,9 @@ import { buildManifest } from "../../../../lib/masterPackingDb";
 import { getSupabaseErrorMessage } from "../../../../lib/supabaseError";
 import type { ManifestLooseInnerBox, ManifestMasterBox } from "../../../../types/masterPacking";
 
+const tableWrapClass = "overflow-x-auto border border-t-0 border-slate-200 rounded-b-xl";
+const tableBaseClass = "w-full text-sm min-w-[480px]";
+
 export default function MasterManifestPage(props: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(props.params);
   const [loading, setLoading] = useState(true);
@@ -154,8 +157,8 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
                         No inner boxes assigned
                       </p>
                     ) : (
-                      <div className="overflow-x-auto border border-t-0 border-slate-200 rounded-b-xl">
-                        <table className="w-full text-sm min-w-[480px]">
+                      <div className={tableWrapClass}>
+                        <table className={tableBaseClass}>
                           <thead>
                             <tr className="bg-slate-50 text-left border-b border-slate-200">
                               <th className="py-3 px-4 font-bold text-slate-700">Inner LPN</th>
@@ -196,7 +199,7 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
                 </p>
               ) : (
                 <div className="overflow-x-auto border border-amber-200 rounded-xl bg-amber-50/40">
-                  <table className="w-full text-sm min-w-[480px]">
+                  <table className={tableBaseClass}>
                     <thead>
                       <tr className="bg-amber-100/60 text-left border-b border-amber-200">
                         <th className="py-3 px-4 font-bold text-amber-900">Inner LPN</th>

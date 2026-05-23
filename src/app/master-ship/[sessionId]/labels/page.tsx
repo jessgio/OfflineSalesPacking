@@ -80,7 +80,7 @@ export default function MasterLabelPrinter(props: { params: Promise<{ sessionId:
           }
         />
 
-        <p className="hidden print:hidden text-sm text-slate-600 text-center mb-6 px-4">
+        <p className="print:hidden text-sm text-slate-600 text-center mb-6 px-4">
           Preview below. Use <strong>Print all</strong> for thermal labels — one page per master carton.
         </p>
 
@@ -88,7 +88,7 @@ export default function MasterLabelPrinter(props: { params: Promise<{ sessionId:
           {boxes.map((box) => (
             <div
               key={box.id}
-              className="bg-white border-2 border-dashed border-violet-200 w-[20rem] p-6 flex flex-col items-center rounded-2xl shadow-sm print:border-none print:w-[100mm] print:h-[150mm] print:page-break-after-always print:shadow-none print:rounded-none print:justify-start print:pt-12"
+              className="bg-white border-2 border-dashed border-violet-200 w-[20rem] p-6 flex flex-col items-center rounded-2xl shadow-sm print:border-none print:w-[100mm] print:h-[150mm] print:break-after-page print:shadow-none print:rounded-none print:justify-start print:pt-12"
             >
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">Aeris · Master carton</p>
               <h2 className="font-black text-2xl tracking-tight uppercase mt-1 mb-2">Master #{box.box_number}</h2>

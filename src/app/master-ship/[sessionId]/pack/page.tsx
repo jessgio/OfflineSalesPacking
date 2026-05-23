@@ -29,6 +29,9 @@ import {
 import { getSupabaseErrorMessage } from "../../../../lib/supabaseError";
 import type { MasterBox, MasterBoxContentRow, PackingSession, PurchaseOrderRow } from "../../../../types/masterPacking";
 
+const rowActionBtnBase =
+  "shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold disabled:opacity-50";
+
 export default function MasterPackStation(props: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(props.params);
   const [session, setSession] = useState<PackingSession | null>(null);
@@ -383,7 +386,7 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
                           onClick={() => handleRemoveInner(c)}
                           disabled={busy}
                           data-no-refocus
-                          className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+                          className={`${rowActionBtnBase} text-red-700 bg-red-50 hover:bg-red-100`}
                         >
                           <Trash2 className="w-4 h-4" /> Remove
                         </button>
