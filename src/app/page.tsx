@@ -459,7 +459,7 @@ export default function ManagerDashboard() {
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600"><Loader2 className="animate-spin w-8 h-8 mb-2" /><span className="font-semibold">Processing Data...</span></div>
             ) : (
-              <div><p className="font-semibold text-lg text-gray-700">Click or Drag <span className="font-bold">{activeTab}</span> Files Here</p><p className="text-sm text-gray-500 mt-1">{activeTab === "SOCIOLLA" ? "Sociolla PO. Set inner box first, then print LPNs." : "Multi-file supported. LPN mode enabled."}</p></div>
+              <div><p className="font-semibold text-lg text-gray-700">Click or Drag <span className="font-bold">{activeTab}</span> Files Here</p><p className="text-sm text-gray-500 mt-1">{activeTab === "SOCIOLLA" ? "Upload PDF file. Set inner box first, then print LPN labels." : "Multi-file supported. LPN mode enabled."}</p></div>
             )}
           </div>
           {message.text && (
