@@ -4,6 +4,9 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X, Store, Users, Printer, Archive, Search, Box } from "lucide-react";
 import Link from "next/link";
+import { sociollaLpnBarcode } from "../lib/sociolla/lpnBarcode";
+import { mapSociollaLinesToProducts } from "../lib/sociolla/productMapping";
+import { parseSociollaPoText } from "../lib/sociolla/sociollaPoParser";
 
 export default function ManagerDashboard() {
   const [pos, setPos] = useState<any[]>([]);
@@ -152,6 +155,8 @@ export default function ManagerDashboard() {
         let globalBuyer = "";
         let globalPoDate = "";
         let globalDelDate = "";
+        let sociollaUnmapped: string[] = [];
+        const isSociolla = activeTab === "SOCIOLLA";
 
         // ====================================================================
         // DFI STRICT PARSER
@@ -261,21 +266,87 @@ export default function ManagerDashboard() {
           if (parsedItems.length === 0) throw new Error("Headers found, but no items detected below them.");
         }
 
-        if (activeTab === "SOCIOLLA" || activeTab === "RESELLER") throw new Error("Module under construction.");
+        if (activeTab === "SOCIOLLA") {
+          const lowerName = file.name.toLowerCase();
+          let sociollaText = text;
+
+          if (lowerName.endsWith(".pdf")) {
+            const formData = new FormData();
+            formData.append("file", file);
+            const res = await fetch("/api/sociolla/parse-po", { method: "POST", body: formData });
+            const body = await res.json();
+            if (!res.ok) throw new Error(body.error || "Failed to parse Sociolla PDF.");
+            globalPoNum = body.poNumber;
+            globalBuyer = body.retailerName;
+            globalPoDate = body.poDate;
+            globalDelDate = body.deliveryDate;
+
+            const sociollaSkus = body.lines.map((line: { sociollaSku: string }) => line.sociollaSku);
+            const { data: sociollaProducts } = await supabase
+              .from("products")
+              .select("barcode, clean_name, sociolla_sku")
+              .in("sociolla_sku", sociollaSkus);
+
+            const { mapped, unmappedSkus } = mapSociollaLinesToProducts(body.lines, sociollaProducts ?? []);
+            sociollaUnmapped = unmappedSkus;
+
+            parsedItems = mapped.map((line) => ({
+              barcode: line.barcode,
+              retailerSku: line.sociollaSku,
+              productName: line.productName,
+              innerBoxes: 1,
+              targetQty: line.targetQty,
+            }));
+          } else {
+            const parsed = parseSociollaPoText(sociollaText);
+            globalPoNum = parsed.poNumber;
+            globalBuyer = parsed.retailerName;
+            globalPoDate = parsed.poDate;
+            globalDelDate = parsed.deliveryDate;
+
+            const sociollaSkus = parsed.lines.map((line) => line.sociollaSku);
+            const { data: sociollaProducts } = await supabase
+              .from("products")
+              .select("barcode, clean_name, sociolla_sku")
+              .in("sociolla_sku", sociollaSkus);
+
+            const { mapped, unmappedSkus } = mapSociollaLinesToProducts(parsed.lines, sociollaProducts ?? []);
+            sociollaUnmapped = unmappedSkus;
+
+            parsedItems = mapped.map((line) => ({
+              barcode: line.barcode,
+              retailerSku: line.sociollaSku,
+              productName: line.productName,
+              innerBoxes: 1,
+              targetQty: line.targetQty,
+            }));
+          }
+
+          if (parsedItems.length === 0) throw new Error("No Sociolla line items found in file.");
+        }
+
+        if (activeTab === "RESELLER") throw new Error("Module under construction.");
 
         // =============================================================
         // UNIVERSAL DATABASE SAVE LOGIC
         // =============================================================
         const uniqueBarcodes = parsedItems.map((item: any) => item.barcode);
-        const { data: masterProducts } = await supabase.from('products').select('barcode, clean_name').in('barcode', uniqueBarcodes);
-        const productDictionary: Record<string, string> = {};
-        if (masterProducts) {
-          masterProducts.forEach((p: any) => { productDictionary[p.barcode] = p.clean_name; });
+        let productDictionary: Record<string, string> = {};
+
+        if (isSociolla) {
+          parsedItems.forEach((item: any) => {
+            productDictionary[item.barcode] = item.productName;
+          });
+        } else {
+          const { data: masterProducts } = await supabase.from('products').select('barcode, clean_name').in('barcode', uniqueBarcodes);
+          if (masterProducts) {
+            masterProducts.forEach((p: any) => { productDictionary[p.barcode] = p.clean_name; });
+          }
         }
 
         const totalItems = parsedItems.reduce((sum: number, item: any) => sum + item.targetQty, 0);       
         const cleanPoNumber = globalPoNum || `PO-${Math.floor(Math.random()*1000)}`;
-        const base8PO = get8DigitPO(cleanPoNumber);
+        const base8PO = isSociolla ? "" : get8DigitPO(cleanPoNumber);
 
         const { data: poData, error: poError } = await supabase
           .from("purchase_orders")
@@ -295,6 +366,7 @@ export default function ManagerDashboard() {
         const itemsToInsert = parsedItems.map((item: any) => ({
           po_id: poData.id,
           barcode: item.barcode,
+          retailer_sku: item.retailerSku ?? null,
           product_name: productDictionary[item.barcode] || item.productName || "Aeris SKU",
           inner_boxes: item.innerBoxes, 
           target_qty: item.targetQty,
@@ -305,29 +377,45 @@ export default function ManagerDashboard() {
         const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert).select();
         if (itemsError) throw new Error(`Database Error (Items): ${itemsError.message}`);
 
-        // FIX: GLOBALLY TRACK CARTONS ACROSS THE ENTIRE UPLOADED FILE
         const boxesToInsert: any[] = [];
-        let universalSequence = 1;
-        let globalCartonNo = 1; 
-        const globalTotalBoxes = parsedItems.reduce((sum: number, item: any) => sum + item.innerBoxes, 0);
+        const globalTotalBoxes = isSociolla
+          ? parsedItems.length
+          : parsedItems.reduce((sum: number, item: any) => sum + item.innerBoxes, 0);
 
-        parsedItems.forEach(item => {
-          for (let i = 0; i < item.innerBoxes; i++) {
-            const paddedSeq = String(universalSequence).padStart(5, '0');
-            const uniqueBoxBarcode = `${base8PO}${paddedSeq}`; 
-            
+        if (isSociolla) {
+          parsedItems.forEach((item, index) => {
+            const variantIndex = index + 1;
             boxesToInsert.push({
               po_id: poData.id,
               product_barcode: item.barcode,
-              box_barcode: uniqueBoxBarcode,
-              carton_number: globalCartonNo, // 1 to X count applied globally!
-              total_cartons: globalTotalBoxes, 
-              is_scanned: false
+              box_barcode: sociollaLpnBarcode(cleanPoNumber, variantIndex),
+              carton_number: variantIndex,
+              total_cartons: globalTotalBoxes,
+              is_scanned: false,
             });
-            universalSequence++;
-            globalCartonNo++;
-          }
-        });
+          });
+        } else {
+          let universalSequence = 1;
+          let globalCartonNo = 1;
+
+          parsedItems.forEach((item) => {
+            for (let i = 0; i < item.innerBoxes; i++) {
+              const paddedSeq = String(universalSequence).padStart(5, "0");
+              const uniqueBoxBarcode = `${base8PO}${paddedSeq}`;
+
+              boxesToInsert.push({
+                po_id: poData.id,
+                product_barcode: item.barcode,
+                box_barcode: uniqueBoxBarcode,
+                carton_number: globalCartonNo,
+                total_cartons: globalTotalBoxes,
+                is_scanned: false,
+              });
+              universalSequence++;
+              globalCartonNo++;
+            }
+          });
+        }
 
         if (boxesToInsert.length > 0) {
           const { error: boxesError } = await supabase.from("po_boxes").insert(boxesToInsert);
@@ -335,6 +423,11 @@ export default function ManagerDashboard() {
         }
 
         successCount++;
+        if (sociollaUnmapped.length > 0) {
+          errorLogs.push(
+            `${file.name}: imported with ${sociollaUnmapped.length} unmapped Sociolla SKU(s) — add sociolla_sku in products: ${sociollaUnmapped.slice(0, 5).join(", ")}${sociollaUnmapped.length > 5 ? "…" : ""}`
+          );
+        }
 
       } catch (error: any) {
         console.error(`Upload error on ${file.name}:`, error);
@@ -345,10 +438,14 @@ export default function ManagerDashboard() {
 
     setUploading(false); fetchPOs(); event.target.value = null; 
     
-    if (failCount === 0) {
-      setMessage({ text: `Success! Bulk processed ${successCount} POs.`, type: "success" });
+    const unmappedWarnings = errorLogs.filter((e) => e.includes("unmapped Sociolla"));
+    const hardErrors = errorLogs.filter((e) => !e.includes("unmapped Sociolla"));
+
+    if (failCount === 0 && hardErrors.length === 0) {
+      const warnText = unmappedWarnings.length ? ` Warnings: ${unmappedWarnings.join(" | ")}` : "";
+      setMessage({ text: `Success! Bulk processed ${successCount} PO(s).${warnText}`, type: unmappedWarnings.length ? "info" : "success" });
     } else {
-      setMessage({ text: `Failed on ${failCount} files. Errors: ${errorLogs.join(' | ')}`, type: "error" });
+      setMessage({ text: `Failed on ${failCount} file(s). ${[...hardErrors, ...unmappedWarnings].join(" | ")}`, type: "error" });
     }
   };
 
@@ -380,11 +477,11 @@ export default function ManagerDashboard() {
             </div>
           </div>
           <div className={`border-2 border-dashed rounded-xl p-8 text-center transition tracking-wide relative ${activeTab === 'DFI' ? 'border-gray-300 bg-gray-50 hover:bg-gray-100' : activeTab === 'SOCIOLLA' ? 'border-pink-200 bg-pink-50/30 hover:bg-pink-50' : 'border-amber-200 bg-amber-50/30 hover:bg-amber-50'}`}>
-            <input type="file" accept=".csv,.txt,.xlsx" multiple onChange={handleFileUpload} disabled={uploading} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed" />
+            <input type="file" accept={activeTab === "SOCIOLLA" ? ".pdf" : ".csv,.txt,.xlsx"} multiple onChange={handleFileUpload} disabled={uploading} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed" />
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600"><Loader2 className="animate-spin w-8 h-8 mb-2" /><span className="font-semibold">Processing Data...</span></div>
             ) : (
-              <div><p className="font-semibold text-lg text-gray-700">Click or Drag <span className="font-bold">{activeTab}</span> Files Here</p><p className="text-sm text-gray-500 mt-1">Multi-file Supported. LPN Mode Enabled.</p></div>
+              <div><p className="font-semibold text-lg text-gray-700">Click or Drag <span className="font-bold">{activeTab}</span> Files Here</p><p className="text-sm text-gray-500 mt-1">{activeTab === "SOCIOLLA" ? "Sociolla Purchase Order PDF. One LPN per SKU variant." : "Multi-file supported. LPN mode enabled."}</p></div>
             )}
           </div>
           {message.text && (
