@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X, Store, Users, Printer, Archive, Search, Box } from "lucide-react";
 import Link from "next/link";
+import { extractPdfTextFromFile } from "../lib/sociolla/extractPdfText";
 import { sociollaLpnBarcode } from "../lib/sociolla/lpnBarcode";
 import { mapSociollaLinesToProducts } from "../lib/sociolla/productMapping";
 import { parseSociollaPoText } from "../lib/sociolla/sociollaPoParser";
@@ -267,60 +268,34 @@ export default function ManagerDashboard() {
         }
 
         if (activeTab === "SOCIOLLA") {
-          const lowerName = file.name.toLowerCase();
-          let sociollaText = text;
+          const sociollaText = file.name.toLowerCase().endsWith(".pdf")
+            ? await extractPdfTextFromFile(file)
+            : text;
 
-          if (lowerName.endsWith(".pdf")) {
-            const formData = new FormData();
-            formData.append("file", file);
-            const res = await fetch("/api/sociolla/parse-po", { method: "POST", body: formData });
-            const body = await res.json();
-            if (!res.ok) throw new Error(body.error || "Failed to parse Sociolla PDF.");
-            globalPoNum = body.poNumber;
-            globalBuyer = body.retailerName;
-            globalPoDate = body.poDate;
-            globalDelDate = body.deliveryDate;
+          if (!sociollaText.trim()) throw new Error("Could not read text from Sociolla PDF.");
 
-            const sociollaSkus = body.lines.map((line: { sociollaSku: string }) => line.sociollaSku);
-            const { data: sociollaProducts } = await supabase
-              .from("products")
-              .select("barcode, clean_name, sociolla_sku")
-              .in("sociolla_sku", sociollaSkus);
+          const parsed = parseSociollaPoText(sociollaText);
+          globalPoNum = parsed.poNumber;
+          globalBuyer = parsed.retailerName;
+          globalPoDate = parsed.poDate;
+          globalDelDate = parsed.deliveryDate;
 
-            const { mapped, unmappedSkus } = mapSociollaLinesToProducts(body.lines, sociollaProducts ?? []);
-            sociollaUnmapped = unmappedSkus;
+          const sociollaSkus = parsed.lines.map((line) => line.sociollaSku);
+          const { data: sociollaProducts } = await supabase
+            .from("products")
+            .select("barcode, clean_name, sociolla_sku")
+            .in("sociolla_sku", sociollaSkus);
 
-            parsedItems = mapped.map((line) => ({
-              barcode: line.barcode,
-              retailerSku: line.sociollaSku,
-              productName: line.productName,
-              innerBoxes: 1,
-              targetQty: line.targetQty,
-            }));
-          } else {
-            const parsed = parseSociollaPoText(sociollaText);
-            globalPoNum = parsed.poNumber;
-            globalBuyer = parsed.retailerName;
-            globalPoDate = parsed.poDate;
-            globalDelDate = parsed.deliveryDate;
+          const { mapped, unmappedSkus } = mapSociollaLinesToProducts(parsed.lines, sociollaProducts ?? []);
+          sociollaUnmapped = unmappedSkus;
 
-            const sociollaSkus = parsed.lines.map((line) => line.sociollaSku);
-            const { data: sociollaProducts } = await supabase
-              .from("products")
-              .select("barcode, clean_name, sociolla_sku")
-              .in("sociolla_sku", sociollaSkus);
-
-            const { mapped, unmappedSkus } = mapSociollaLinesToProducts(parsed.lines, sociollaProducts ?? []);
-            sociollaUnmapped = unmappedSkus;
-
-            parsedItems = mapped.map((line) => ({
-              barcode: line.barcode,
-              retailerSku: line.sociollaSku,
-              productName: line.productName,
-              innerBoxes: 1,
-              targetQty: line.targetQty,
-            }));
-          }
+          parsedItems = mapped.map((line) => ({
+            barcode: line.barcode,
+            retailerSku: line.sociollaSku,
+            productName: line.productName,
+            innerBoxes: 1,
+            targetQty: line.targetQty,
+          }));
 
           if (parsedItems.length === 0) throw new Error("No Sociolla line items found in file.");
         }
