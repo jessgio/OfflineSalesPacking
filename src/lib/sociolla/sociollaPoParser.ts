@@ -46,15 +46,18 @@ export function normalizeSociollaPdfText(raw: string): string {
     .replace(/\r\n/g, "\n");
 }
 
-export function extractSociollaPoNumber(text: string): string {
-  const full = text.match(/#\s*(PO\/SRI\/\d{4}\/\d{5,})/i);
-  if (full) return full[1].trim();
+/** Display PO as YYYY/######## (e.g. 2026/00017174), without PO/SRI prefix. */
+export function formatSociollaPoNumber(year: string, suffixDigits: string): string {
+  const seq = suffixDigits.replace(/\D/g, "").padStart(8, "0").slice(-8);
+  return `${year}/${seq}`;
+}
 
-  const inline = text.match(/PO\/SRI\/\d{4}\/\d{5,}/i);
-  if (inline) return inline[0].trim();
+export function extractSociollaPoNumber(text: string): string {
+  const full = text.match(/#\s*PO\/SRI\/(\d{4})\/(\d{5,})/i) ?? text.match(/PO\/SRI\/(\d{4})\/(\d{5,})/i);
+  if (full) return formatSociollaPoNumber(full[1], full[2]);
 
   const split = text.match(/PO\/SRI\/(\d{4})\/(\d+)\s*\n\s*(\d+)/i);
-  if (split) return `PO/SRI/${split[1]}/${split[2]}${split[3]}`;
+  if (split) return formatSociollaPoNumber(split[1], `${split[2]}${split[3]}`);
 
   return "";
 }
@@ -69,16 +72,33 @@ function parseSociollaDate(raw: string): string {
   return trimmed || "N/A";
 }
 
-function extractLabeledValue(text: string, label: string): string {
-  const re = new RegExp(`${label}\\s*:?\\s*\\n?\\s*([^\\n]+)`, "i");
-  const match = text.match(re);
-  return match ? match[1].trim() : "";
+/** Keep Sociolla's DD-Mon-YYYY label format for display (e.g. 15-May-2026). */
+function formatSociollaDisplayDate(raw: string): string {
+  const trimmed = raw.trim();
+  const dmy = trimmed.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
+  if (dmy) {
+    return `${parseInt(dmy[1], 10)}-${dmy[2]}-${dmy[3]}`;
+  }
+  return trimmed || "N/A";
+}
+
+function extractOrderDate(text: string): string {
+  const duplicated = text.match(/Order Date\s*:?\s*\n\s*Order Date\s*:?\s*\n\s*([^\n]+)/i);
+  if (duplicated) return duplicated[1].trim();
+
+  const inline = text.match(/Order Date[\s:\t]*Order Date[\s:\t]*(\d{1,2}-[A-Za-z]{3}-\d{4})/i);
+  if (inline) return inline[1].trim();
+
+  const single = text.match(/Order Date\s*:?\s*\n\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/i);
+  return single ? single[1].trim() : "";
 }
 
 function extractScheduleDate(text: string): string {
-  const re = /Schedule Date\s*\n\s*Schedule Date\s*\n\s*([^\n]+)/i;
-  const match = text.match(re);
-  return match ? parseSociollaDate(match[1]) : "";
+  const duplicated = text.match(/Schedule Date\s*:?\s*\n\s*Schedule Date\s*:?\s*\n\s*([^\n]+)/i);
+  if (duplicated) return parseSociollaDate(duplicated[1]);
+
+  const single = text.match(/Schedule Date\s*:?\s*\n\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/i);
+  return single ? parseSociollaDate(single[1]) : "";
 }
 
 export function parseSociollaPoLines(text: string): SociollaPoLine[] {
@@ -113,13 +133,13 @@ export function parseSociollaPoText(raw: string): SociollaParsedPo {
     throw new Error("No line items found. SKUs must appear in [AEB.…] brackets with a quantity in Units.");
   }
 
-  const orderDateRaw = extractLabeledValue(text, "Order Date");
-  const scheduleDate = extractScheduleDate(text) || extractLabeledValue(text, "Schedule Date");
+  const orderDateRaw = extractOrderDate(text);
+  const scheduleDate = extractScheduleDate(text);
 
   return {
     poNumber,
     retailerName: "Sociolla",
-    poDate: parseSociollaDate(orderDateRaw),
+    poDate: formatSociollaDisplayDate(orderDateRaw),
     deliveryDate: scheduleDate || "N/A",
     lines,
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
