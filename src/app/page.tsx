@@ -331,7 +331,7 @@ export default function ManagerDashboard() {
               po_date: globalPoDate || 'N/A',
               delivery_date: globalDelDate || 'N/A',
               total_items: totalItems,
-              status: isSociolla ? "Planning" : "Not Started",
+              status: "Not Started",
               carton_plan_status: isSociolla ? "draft" : null,
           }])
           .select()
@@ -487,7 +487,7 @@ export default function ManagerDashboard() {
                      <div className="pl-8 pt-1">
                        <div className="flex justify-between items-start mb-3">
                          <h3 className="font-bold text-lg text-gray-900 pr-8 line-clamp-2">PO: {po.po_number}</h3>
-                         <span className={`px-2 py-1 flex-shrink-0 text-[0.7rem] font-bold rounded-full ${po.status === 'Completed' ? 'bg-green-100 text-green-700' : po.status === 'Packing' ? 'bg-yellow-100 text-yellow-700' : po.status === 'Planning' ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-700'}`}>{po.status}</span>
+                         <span className={`px-2 py-1 flex-shrink-0 text-[0.7rem] font-bold rounded-full ${po.status === 'Completed' ? 'bg-green-100 text-green-700' : po.status === 'Packing' ? 'bg-yellow-100 text-yellow-700' : needsCartonPlanning(po) ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-700'}`}>{needsCartonPlanning(po) ? 'Planning' : po.status}</span>
                        </div>
                        <p className="text-sm font-bold text-blue-600 mb-4">{po.retailer_name}</p>
                        <div className="flex flex-col gap-2 mt-4 px-3 py-3 bg-gray-50/80 rounded-lg text-sm">
