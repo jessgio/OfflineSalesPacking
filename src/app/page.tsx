@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X, Store, Users, Printer, Archive, Search, Box } from "lucide-react";
+import { UploadCloud, Package, ArrowRight, Loader2, Trash2, Calendar, Truck, Combine, X, Store, Users, Printer, Archive, Search, Box, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { extractPdfTextFromFile } from "../lib/sociolla/extractPdfText";
-import { sociollaLpnBarcode } from "../lib/sociolla/lpnBarcode";
 import { mapSociollaLinesToProducts } from "../lib/sociolla/productMapping";
 import { parseSociollaPoText } from "../lib/sociolla/sociollaPoParser";
+import { needsCartonPlanning } from "../lib/sociolla/cartonPlan";
 
 export default function ManagerDashboard() {
   const [pos, setPos] = useState<any[]>([]);
@@ -293,7 +293,7 @@ export default function ManagerDashboard() {
             barcode: line.barcode,
             retailerSku: line.sociollaSku,
             productName: line.productName,
-            innerBoxes: 1,
+            innerBoxes: 0,
             targetQty: line.targetQty,
           }));
 
@@ -331,7 +331,8 @@ export default function ManagerDashboard() {
               po_date: globalPoDate || 'N/A',
               delivery_date: globalDelDate || 'N/A',
               total_items: totalItems,
-              status: "Not Started" 
+              status: isSociolla ? "Planning" : "Not Started",
+              carton_plan_status: isSociolla ? "draft" : null,
           }])
           .select()
           .single();
@@ -352,24 +353,18 @@ export default function ManagerDashboard() {
         const { error: itemsError } = await supabase.from("po_items").insert(itemsToInsert).select();
         if (itemsError) throw new Error(`Database Error (Items): ${itemsError.message}`);
 
-        const boxesToInsert: any[] = [];
-        const globalTotalBoxes = isSociolla
-          ? parsedItems.length
-          : parsedItems.reduce((sum: number, item: any) => sum + item.innerBoxes, 0);
-
         if (isSociolla) {
-          parsedItems.forEach((item, index) => {
-            const variantIndex = index + 1;
-            boxesToInsert.push({
-              po_id: poData.id,
-              product_barcode: item.barcode,
-              box_barcode: sociollaLpnBarcode(cleanPoNumber, variantIndex),
-              carton_number: variantIndex,
-              total_cartons: globalTotalBoxes,
-              is_scanned: false,
-            });
+          const { error: planError } = await supabase.from("po_carton_plans").insert({
+            po_id: poData.id,
+            plan: [],
           });
-        } else {
+          if (planError) throw new Error(`Database Error (Carton plan): ${planError.message}`);
+        }
+
+        const boxesToInsert: any[] = [];
+        const globalTotalBoxes = parsedItems.reduce((sum: number, item: any) => sum + item.innerBoxes, 0);
+
+        if (!isSociolla) {
           let universalSequence = 1;
           let globalCartonNo = 1;
 
@@ -492,7 +487,7 @@ export default function ManagerDashboard() {
                      <div className="pl-8 pt-1">
                        <div className="flex justify-between items-start mb-3">
                          <h3 className="font-bold text-lg text-gray-900 pr-8 line-clamp-2">PO: {po.po_number}</h3>
-                         <span className={`px-2 py-1 flex-shrink-0 text-[0.7rem] font-bold rounded-full ${po.status === 'Completed' ? 'bg-green-100 text-green-700' : po.status === 'Packing' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>{po.status}</span>
+                         <span className={`px-2 py-1 flex-shrink-0 text-[0.7rem] font-bold rounded-full ${po.status === 'Completed' ? 'bg-green-100 text-green-700' : po.status === 'Packing' ? 'bg-yellow-100 text-yellow-700' : po.status === 'Planning' ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-700'}`}>{po.status}</span>
                        </div>
                        <p className="text-sm font-bold text-blue-600 mb-4">{po.retailer_name}</p>
                        <div className="flex flex-col gap-2 mt-4 px-3 py-3 bg-gray-50/80 rounded-lg text-sm">
@@ -501,8 +496,14 @@ export default function ManagerDashboard() {
                        </div>
                      </div>
                      <div className="mt-6 flex flex-col gap-2">
-                        <Link href={`/labels/${po.id}`}><button className="w-full bg-blue-50 text-blue-700 border border-blue-200 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition"><Printer className="w-4 h-4" /> Print LPN Labels</button></Link>
-                        <Link href={`/pack/${po.id}`}><button className="w-full bg-black text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition active:scale-[0.98]">Start 2FA Scan <ArrowRight className="w-4 h-4" /></button></Link>
+                        {needsCartonPlanning(po) ? (
+                          <Link href={`/plan/${po.id}`}><button className="w-full bg-pink-600 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-pink-700 transition"><LayoutGrid className="w-4 h-4" /> Plan Inner Boxes</button></Link>
+                        ) : (
+                          <>
+                            <Link href={`/labels/${po.id}`}><button className="w-full bg-blue-50 text-blue-700 border border-blue-200 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition"><Printer className="w-4 h-4" /> Print LPN Labels</button></Link>
+                            <Link href={`/pack/${po.id}`}><button className="w-full bg-black text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition active:scale-[0.98]">Start 2FA Scan <ArrowRight className="w-4 h-4" /></button></Link>
+                          </>
+                        )}
                      </div>
                    </div>
                  );

@@ -5,6 +5,13 @@ import { supabase } from "../../../lib/supabaseClient";
 import Barcode from "react-barcode";
 import { ArrowLeft, Printer, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { needsCartonPlanning } from "../../../lib/sociolla/cartonPlan";
+
+interface BoxContentRow {
+  po_box_id: string;
+  product_barcode: string;
+  qty: number;
+}
 
 export default function LabelPrinter(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params); 
@@ -23,14 +30,37 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
 
       const { data: boxData } = await supabase.from("po_boxes").select("*").eq("po_id", poId).order("box_barcode");
       const { data: itemData } = await supabase.from("po_items").select("barcode, product_name").eq("po_id", poId);
+
+      const boxIds = (boxData ?? []).map((b) => b.id);
+      const { data: contentsData } =
+        boxIds.length > 0
+          ? await supabase.from("po_box_contents").select("po_box_id, product_barcode, qty").in("po_box_id", boxIds)
+          : { data: [] as BoxContentRow[] };
+
+      const nameByBarcode: Record<string, string> = {};
+      (itemData ?? []).forEach((item) => {
+        nameByBarcode[item.barcode] = item.product_name;
+      });
+
+      const contentsByBox: Record<string, BoxContentRow[]> = {};
+      (contentsData ?? []).forEach((row) => {
+        if (!contentsByBox[row.po_box_id]) contentsByBox[row.po_box_id] = [];
+        contentsByBox[row.po_box_id].push(row);
+      });
       
-      if (boxData && itemData) {
-        const mergedBoxes = boxData.map(box => {
-          const matchedItem = itemData.find(item => item.barcode === box.product_barcode);
-          return {
-            ...box,
-            product_name: matchedItem ? matchedItem.product_name : "Aeris Product"
-          };
+      if (boxData) {
+        const mergedBoxes = boxData.map((box) => {
+          const contents = contentsByBox[box.id] ?? [];
+          const product_name =
+            contents.length > 1
+              ? contents
+                  .map((c) => `${c.qty}× ${nameByBarcode[c.product_barcode] ?? "Product"}`)
+                  .join(" · ")
+              : contents.length === 1
+                ? nameByBarcode[contents[0].product_barcode] ?? "Aeris Product"
+                : (itemData ?? []).find((item) => item.barcode === box.product_barcode)?.product_name ?? "Aeris Product";
+
+          return { ...box, product_name, contents };
         });
         setBoxes(mergedBoxes);
       }
@@ -45,6 +75,20 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
         <Loader2 className="animate-spin w-12 h-12 text-blue-600 mb-4" />
         <p className="text-gray-500 font-medium">Generating Thermal Configurations...</p>
+      </div>
+    );
+  }
+
+  if (needsCartonPlanning(po)) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-8">
+        <div className="bg-white p-8 rounded-xl shadow-sm text-center max-w-md w-full">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Plan inner boxes first</h2>
+          <p className="text-gray-500 mb-6">Assign SKUs to inner boxes before printing LPN labels.</p>
+          <Link href={`/plan/${poId}`}>
+            <button className="bg-pink-600 text-white px-6 py-2 rounded-lg font-bold w-full">Plan Inner Boxes</button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -65,7 +109,6 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
 
   return (
     <div className="min-h-screen bg-gray-100 pb-24 text-black">
-      {/* APP BAR (Hides on print) */}
       <div className="bg-white border-b px-8 py-4 flex justify-between items-center shadow-sm z-10 sticky top-0 print:hidden">
         <div className="flex items-center gap-4">
           <Link href="/"><button className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition"><ArrowLeft className="w-5 h-5" /></button></Link>
@@ -76,7 +119,6 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
         </button>
       </div>
 
-      {/* THE ACTUAL THERMAL LABELS */}
       <div className="p-8 max-w-5xl mx-auto print:p-0 print:m-0 flex flex-wrap gap-6 justify-center">
         {boxes.map((box) => (
           <div 
@@ -87,11 +129,10 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
                <h2 className="font-black text-3xl tracking-tighter uppercase mb-1">AERIS BEAUTE</h2>
                <p className="text-sm font-bold border-b-2 border-black w-full pb-2 mb-4">PO: {po.po_number}</p>
                
-               <p className="text-xl font-extrabold text-gray-900 leading-tight min-h-[3rem] flex items-center justify-center px-2">
+               <p className="text-lg font-extrabold text-gray-900 leading-tight min-h-[3rem] flex items-center justify-center px-2">
                   {box.product_name}
                </p>
 
-               {/* FIX: Browser Print-Safe Outline Box instead of Background Fill */}
                <div className="my-4 border-y-4 border-black w-full py-2 font-black tracking-widest text-xl text-black">
                   CARTON {box.carton_number} OF {box.total_cartons}
                </div>

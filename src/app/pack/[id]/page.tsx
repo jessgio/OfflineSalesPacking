@@ -5,6 +5,15 @@ import { supabase } from "../../../lib/supabaseClient";
 // ADDED CALENDAR AND TRUCK HERE VVV
 import { ArrowLeft, CheckCircle2, AlertOctagon, ScanLine, Loader2, UserCircle, QrCode, Lock, Search, Filter, AlertTriangle, Printer, RotateCcw, Calendar, Truck } from "lucide-react";
 import Link from "next/link";
+import { needsCartonPlanning } from "../../../lib/sociolla/cartonPlan";
+
+interface BoxContentRow {
+  id: string;
+  po_box_id: string;
+  product_barcode: string;
+  qty: number;
+  scanned_qty: number;
+}
 
 export default function PackStation(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params); 
@@ -12,7 +21,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
   const [po, setPo] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
-  const [boxes, setBoxes] = useState<any[]>([]); 
+  const [boxes, setBoxes] = useState<any[]>([]);
+  const [boxContents, setBoxContents] = useState<BoxContentRow[]>([]);
+  const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
   const [barcodeInput, setBarcodeInput] = useState("");
   
   const [searchQuery, setSearchQuery] = useState("");
@@ -41,7 +52,19 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       if (itemsData) setItems(itemsData);
 
       const { data: boxData } = await supabase.from("po_boxes").select("*").eq("po_id", poId);
-      if (boxData) setBoxes(boxData);
+      if (boxData) {
+        setBoxes(boxData);
+        if (poData?.carton_plan_status === "finalized" && boxData.length > 0) {
+          const { data: contents } = await supabase
+            .from("po_box_contents")
+            .select("id, po_box_id, product_barcode, qty, scanned_qty")
+            .in(
+              "po_box_id",
+              boxData.map((b) => b.id)
+            );
+          if (contents) setBoxContents(contents);
+        }
+      }
     };
     loadData();
   }, [poId]);
@@ -109,8 +132,161 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     setIsClaimed(true);
   };
 
+  const cartonPackMode = po?.carton_plan_status === "finalized" && boxContents.length > 0;
+
+  const pendingLinesForBox = (boxId: string) =>
+    boxContents.filter((c) => c.po_box_id === boxId && c.scanned_qty < c.qty);
+
+  const describePendingBox = (boxId: string) => {
+    const lines = pendingLinesForBox(boxId);
+    return lines
+      .map((c) => {
+        const item = items.find((i) => i.barcode === c.product_barcode);
+        return `[${item?.product_name ?? c.product_barcode}] ×${c.qty - c.scanned_qty}`;
+      })
+      .join(", ");
+  };
+
+  const sealCarton = async (boxId: string) => {
+    const box = boxes.find((b) => b.id === boxId);
+    if (!box || box.is_scanned) return;
+
+    const timestamp = new Date().toISOString();
+    const lines = boxContents.filter((c) => c.po_box_id === boxId);
+
+    await supabase
+      .from("po_boxes")
+      .update({ is_scanned: true, packed_at: timestamp, packed_by: packerName })
+      .eq("id", boxId);
+
+    for (const line of lines) {
+      await supabase.from("po_box_contents").update({ scanned_qty: line.qty }).eq("id", line.id);
+    }
+
+    const updatedBoxes = boxes.map((b) =>
+      b.id === boxId ? { ...b, is_scanned: true, packed_at: timestamp, packed_by: packerName } : b
+    );
+    setBoxes(updatedBoxes);
+
+    const updatedContents = boxContents.map((c) =>
+      c.po_box_id === boxId ? { ...c, scanned_qty: c.qty } : c
+    );
+    setBoxContents(updatedContents);
+
+    const updatedItems = [...items];
+    for (const line of lines) {
+      const idx = updatedItems.findIndex((i) => i.barcode === line.product_barcode);
+      if (idx === -1) continue;
+      const newQty = (updatedItems[idx].scanned_qty ?? 0) + line.qty;
+      const newHistory = [
+        ...(Array.isArray(updatedItems[idx].scan_history) ? updatedItems[idx].scan_history : []),
+        `${timestamp}|${packerName}|carton ${box.carton_number}`,
+      ];
+      updatedItems[idx] = { ...updatedItems[idx], scanned_qty: newQty, scan_history: newHistory, is_short: false };
+      await supabase
+        .from("po_items")
+        .update({ scanned_qty: newQty, scan_history: newHistory, is_short: false })
+        .eq("id", updatedItems[idx].id);
+    }
+    setItems(updatedItems);
+    setActiveBoxId(null);
+
+    if (po && po.status === "Not Started") {
+      await supabase.from("purchase_orders").update({ status: "Packing" }).eq("id", po.id);
+      setPo({ ...po, status: "Packing" });
+    }
+  };
+
+  const processCartonScan = async (scannedCode: string) => {
+    const isProductBarcode = items.some((i) => i.barcode === scannedCode);
+    const matchedBox = boxes.find((b) => b.box_barcode === scannedCode);
+
+    if (matchedBox) {
+      if (matchedBox.is_scanned) {
+        playSound("error");
+        setFeedback({
+          message: `⚠️ DUPLICATE: Inner Box [Carton ${matchedBox.carton_number}] was already packed!`,
+          type: "error",
+        });
+        return;
+      }
+
+      setActiveBoxId(matchedBox.id);
+      playSound("stage");
+      const pending = describePendingBox(matchedBox.id);
+      setFeedback({
+        message: `🔵 INNER BOX ${matchedBox.carton_number}: Scan product(s) — ${pending}`,
+        type: "blue",
+      });
+      return;
+    }
+
+    if (activeBoxId && isProductBarcode) {
+      const content = boxContents.find(
+        (c) => c.po_box_id === activeBoxId && c.product_barcode === scannedCode
+      );
+      if (!content) {
+        playSound("error");
+        setFeedback({ message: `❌ MISMATCH: That product is not in this inner box.`, type: "error" });
+        return;
+      }
+      if (content.scanned_qty >= content.qty) {
+        playSound("error");
+        setFeedback({ message: `⚠️ Already verified for this inner box.`, type: "error" });
+        return;
+      }
+
+      const nextContents = boxContents.map((c) =>
+        c.id === content.id ? { ...c, scanned_qty: c.qty } : c
+      );
+      setBoxContents(nextContents);
+      await supabase.from("po_box_contents").update({ scanned_qty: content.qty }).eq("id", content.id);
+
+      const stillPending = nextContents.filter(
+        (c) => c.po_box_id === activeBoxId && c.scanned_qty < c.qty
+      );
+
+      if (stillPending.length === 0) {
+        const box = boxes.find((b) => b.id === activeBoxId)!;
+        await sealCarton(activeBoxId);
+        playSound("complete");
+        setFeedback({
+          message: `✅ SECURED: Inner Box ${box.carton_number} of ${box.total_cartons} packed.`,
+          type: "complete",
+        });
+      } else {
+        playSound("success");
+        setFeedback({
+          message: `✓ Verified. Still need: ${describePendingBox(activeBoxId)}`,
+          type: "blue",
+        });
+      }
+      return;
+    }
+
+    if (isProductBarcode && !activeBoxId) {
+      playSound("error");
+      setFeedback({
+        message: `⚠️ SCAN INNER LPN FIRST: Scan the inner box label, then scan each product in that box.`,
+        type: "error",
+      });
+      return;
+    }
+
+    playSound("error");
+    setFeedback({
+      message: `❌ UNKNOWN BARCODE: Scan an inner LPN or a product in the active box.`,
+      type: "error",
+    });
+  };
+
   const processScanCode = async (scannedCode: string) => {
     if (!scannedCode) return;
+
+    if (cartonPackMode) {
+      await processCartonScan(scannedCode);
+      return;
+    }
 
     if (po && (po.status === "Completed" || po.status === "Partial Fulfillment")) {
       playSound("error");
@@ -273,21 +449,45 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   let effectiveCartonTarget = 0;
   let effectiveCartonScanned = 0;
 
-  items.forEach(item => {
-    const securedForThisItem = boxes.filter(b => b.product_barcode === item.barcode && b.is_scanned).length;
-    if (item.is_short) {
-      effectiveCartonTarget += securedForThisItem;
-    } else {
-      effectiveCartonTarget += item.inner_boxes;
-    }
-    effectiveCartonScanned += securedForThisItem;
-  });
+  if (cartonPackMode) {
+    effectiveCartonTarget = boxes.length;
+    effectiveCartonScanned = boxes.filter((b) => b.is_scanned).length;
+  } else {
+    items.forEach((item) => {
+      const securedForThisItem = boxes.filter(
+        (b) => b.product_barcode === item.barcode && b.is_scanned
+      ).length;
+      if (item.is_short) {
+        effectiveCartonTarget += securedForThisItem;
+      } else {
+        effectiveCartonTarget += item.inner_boxes;
+      }
+      effectiveCartonScanned += securedForThisItem;
+    });
+  }
 
   const progressPercent = effectiveCartonTarget === 0 ? 0 : Math.round((effectiveCartonScanned / effectiveCartonTarget) * 100);
   const isOrderFullyPacked = effectiveCartonTarget > 0 && effectiveCartonScanned === effectiveCartonTarget;
   const isHistorical = po?.status === "Completed" || po?.status === "Partial Fulfillment";
 
   if (!po) return <div className="p-8 text-center"><Loader2 className="animate-spin w-8 h-8 mx-auto text-blue-500" /></div>;
+
+  if (needsCartonPlanning(po)) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
+        <div className="bg-white rounded-xl border p-8 max-w-md text-center">
+          <h2 className="text-xl font-bold mb-2">Inner box plan required</h2>
+          <p className="text-gray-600 mb-6">Configure how SKUs are split across inner boxes before packing.</p>
+          <Link href={`/plan/${poId}`} className="block bg-pink-600 text-white py-3 rounded-lg font-bold mb-3">
+            Plan Inner Boxes
+          </Link>
+          <Link href="/" className="text-gray-500 text-sm">
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (!isClaimed) {
     return (
@@ -429,9 +629,13 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                   <tr><td colSpan={3} className="p-8 text-center text-gray-500 font-medium">No items match your search.</td></tr>
                 ) : displayItems.map((item) => {
                   
-                  const requiredCartons = item.inner_boxes;
-                  const securedCartons = boxes.filter(b => b.product_barcode === item.barcode && b.is_scanned).length;
-                  const isComplete = securedCartons >= requiredCartons;
+                  const requiredCartons = cartonPackMode ? item.target_qty : item.inner_boxes;
+                  const securedCartons = cartonPackMode
+                    ? item.scanned_qty ?? 0
+                    : boxes.filter((b) => b.product_barcode === item.barcode && b.is_scanned).length;
+                  const isComplete = cartonPackMode
+                    ? securedCartons >= item.target_qty
+                    : securedCartons >= requiredCartons;
                   const isShort = item.is_short && !isComplete; 
                   const done = isComplete || isShort;
                   
