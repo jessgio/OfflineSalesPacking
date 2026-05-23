@@ -72,16 +72,6 @@ function parseSociollaDate(raw: string): string {
   return trimmed || "N/A";
 }
 
-/** Keep Sociolla's DD-Mon-YYYY label format for display (e.g. 15-May-2026). */
-function formatSociollaDisplayDate(raw: string): string {
-  const trimmed = raw.trim();
-  const dmy = trimmed.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
-  if (dmy) {
-    return `${parseInt(dmy[1], 10)}-${dmy[2]}-${dmy[3]}`;
-  }
-  return trimmed || "N/A";
-}
-
 function extractOrderDate(text: string): string {
   const duplicated = text.match(/Order Date\s*:?\s*\n\s*Order Date\s*:?\s*\n\s*([^\n]+)/i);
   if (duplicated) return duplicated[1].trim();
@@ -139,7 +129,7 @@ export function parseSociollaPoText(raw: string): SociollaParsedPo {
   return {
     poNumber,
     retailerName: "Sociolla",
-    poDate: formatSociollaDisplayDate(orderDateRaw),
+    poDate: parseSociollaDate(orderDateRaw),
     deliveryDate: scheduleDate || "N/A",
     lines,
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
