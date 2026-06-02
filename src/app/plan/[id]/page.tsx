@@ -35,6 +35,8 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
   const [items, setItems] = useState<PoItemForPlan[]>([]);
   const [plan, setPlan] = useState<CartonPlanBox[]>([]);
   const [unitsPerBox, setUnitsPerBox] = useState<Record<string, number>>({});
+  const [bulkBoxCount, setBulkBoxCount] = useState(1);
+  const [bulkPcsPerBox, setBulkPcsPerBox] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" as "info" | "error" | "success" });
@@ -76,8 +78,28 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
     });
   };
 
-  const addCarton = () => {
-    void persistPlan([...plan, emptyCarton()]);
+  const addBulkCartons = () => {
+    const count = Math.max(1, bulkBoxCount);
+    const pcsPerBox = Math.max(1, bulkPcsPerBox);
+    const newCartons: CartonPlanBox[] = [];
+    let workingPlan = [...plan];
+
+    for (let i = 0; i < count; i++) {
+      const currentRemaining = remainingQtyByItem(workingPlan, items);
+      const carton = emptyCarton();
+      carton.lines = items
+        .map((item) => ({
+          poItemId: item.id,
+          barcode: item.barcode,
+          productName: item.product_name,
+          qty: Math.min(pcsPerBox, Math.max(0, currentRemaining[item.barcode] ?? 0)),
+        }))
+        .filter((line) => line.qty > 0);
+      newCartons.push(carton);
+      workingPlan = [...workingPlan, carton];
+    }
+
+    void persistPlan([...plan, ...newCartons]);
   };
 
   const removeCarton = (cartonId: string) => {
@@ -289,21 +311,41 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         </section>
 
         <section className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-center gap-3">
             <h2 className="font-bold text-slate-900">Inner boxes ({plan.length})</h2>
-            <DashButton
-              onClick={addCarton}
-              variant="ghost"
-              size="sm"
-              className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
-            >
-              <Plus className="w-4 h-4" /> Add empty box
-            </DashButton>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                value={bulkBoxCount}
+                onChange={(e) => setBulkBoxCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className={`${fieldInput} w-16 text-center`}
+                title="Number of boxes to add"
+              />
+              <span className="text-sm text-slate-500 font-medium whitespace-nowrap">box(es) ×</span>
+              <input
+                type="number"
+                min={1}
+                value={bulkPcsPerBox}
+                onChange={(e) => setBulkPcsPerBox(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className={`${fieldInput} w-16 text-center`}
+                title="Pieces per box"
+              />
+              <span className="text-sm text-slate-500 font-medium">pcs</span>
+              <DashButton
+                onClick={addBulkCartons}
+                variant="ghost"
+                size="sm"
+                className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
+              >
+                <Plus className="w-4 h-4" /> Add
+              </DashButton>
+            </div>
           </div>
 
           {plan.length === 0 ? (
             <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-600">
-              No inner boxes yet. Use auto-generate or add an empty box, then assign SKUs.
+              No inner boxes yet. Set the number of boxes and pcs per box above, then click Add — or use auto-generate on the left.
             </div>
           ) : (
             <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
