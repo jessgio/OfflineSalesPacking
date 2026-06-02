@@ -311,41 +311,51 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         </section>
 
         <section className="space-y-4">
-          <div className="flex flex-wrap justify-between items-center gap-3">
-            <h2 className="font-bold text-slate-900">Inner boxes ({plan.length})</h2>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                value={bulkBoxCount}
-                onChange={(e) => setBulkBoxCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className={`${fieldInput} w-16 text-center`}
-                title="Number of boxes to add"
-              />
-              <span className="text-sm text-slate-500 font-medium whitespace-nowrap">box(es) ×</span>
-              <input
-                type="number"
-                min={1}
-                value={bulkPcsPerBox}
-                onChange={(e) => setBulkPcsPerBox(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className={`${fieldInput} w-16 text-center`}
-                title="Pieces per box"
-              />
-              <span className="text-sm text-slate-500 font-medium">pcs</span>
-              <DashButton
+          <h2 className="font-bold text-slate-900">Inner boxes ({plan.length})</h2>
+
+          {/* Bulk add panel */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick add</p>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Boxes</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={bulkBoxCount}
+                  onChange={(e) => setBulkBoxCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={`${fieldInput} w-20 text-center`}
+                />
+              </div>
+              <span className="text-slate-400 text-lg font-light pb-1.5">×</span>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Pcs / box</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={bulkPcsPerBox}
+                  onChange={(e) => setBulkPcsPerBox(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={`${fieldInput} w-20 text-center`}
+                />
+              </div>
+              <button
                 onClick={addBulkCartons}
-                variant="ghost"
-                size="sm"
-                className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
+                className="flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold px-4 py-1.5 rounded-md mb-0.5"
               >
-                <Plus className="w-4 h-4" /> Add
-              </DashButton>
+                <Plus className="w-4 h-4" /> Add boxes
+              </button>
             </div>
+            <button
+              onClick={() => void persistPlan([...plan, emptyCarton()])}
+              className="mt-3 text-xs text-slate-400 hover:text-pink-600 transition-colors"
+            >
+              + Add single empty box
+            </button>
           </div>
 
           {plan.length === 0 ? (
-            <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-600">
-              No inner boxes yet. Set the number of boxes and pcs per box above, then click Add — or use auto-generate on the left.
+            <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-500 text-sm">
+              No inner boxes yet. Enter boxes and pcs above, then click Add boxes — or use auto-generate on the left.
             </div>
           ) : (
             <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
@@ -368,7 +378,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                   <ul className="space-y-2 mb-3">
                     {carton.lines.map((line) => (
                       <li key={line.barcode} className="flex items-center gap-2 text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
-                        <span className="flex-1 min-w-0 font-medium text-slate-900 leading-snug">{line.productName}</span>
+                        <span className="flex-1 min-w-0 font-medium text-slate-900 leading-snug truncate" title={line.productName}>{line.productName}</span>
                         <label className="sr-only">Quantity</label>
                         <input
                           type="number"
@@ -401,9 +411,10 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                       <DashButton
                         key={item.id}
                         onClick={() => addLineToCarton(carton.id, item, unitsPerBox[item.barcode] ?? 1)}
-                        className="text-xs bg-white border border-slate-300 hover:border-pink-400 hover:bg-pink-50 text-slate-800 px-2.5 py-1.5 rounded-md font-medium text-left"
+                        className="text-xs bg-white border border-slate-300 hover:border-pink-400 hover:bg-pink-50 text-slate-800 px-2.5 py-1.5 rounded-md font-medium text-left max-w-[200px] truncate"
+                        title={item.product_name}
                       >
-                        + {item.product_name.slice(0, 32)}
+                        + {item.product_name}
                         {(remaining[item.barcode] ?? 0) > 1 ? ` (×${Math.min(unitsPerBox[item.barcode] ?? 1, remaining[item.barcode] ?? 1)})` : ""}
                       </DashButton>
                     ))}
