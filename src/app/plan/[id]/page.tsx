@@ -35,6 +35,8 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
   const [items, setItems] = useState<PoItemForPlan[]>([]);
   const [plan, setPlan] = useState<CartonPlanBox[]>([]);
   const [unitsPerBox, setUnitsPerBox] = useState<Record<string, number>>({});
+  const [bulkBoxCount, setBulkBoxCount] = useState(1);
+  const [bulkPcsPerBox, setBulkPcsPerBox] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" as "info" | "error" | "success" });
@@ -76,8 +78,28 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
     });
   };
 
-  const addCarton = () => {
-    void persistPlan([...plan, emptyCarton()]);
+  const addBulkCartons = () => {
+    const count = Math.max(1, bulkBoxCount);
+    const pcsPerBox = Math.max(1, bulkPcsPerBox);
+    const newCartons: CartonPlanBox[] = [];
+    let workingPlan = [...plan];
+
+    for (let i = 0; i < count; i++) {
+      const currentRemaining = remainingQtyByItem(workingPlan, items);
+      const carton = emptyCarton();
+      carton.lines = items
+        .map((item) => ({
+          poItemId: item.id,
+          barcode: item.barcode,
+          productName: item.product_name,
+          qty: Math.min(pcsPerBox, Math.max(0, currentRemaining[item.barcode] ?? 0)),
+        }))
+        .filter((line) => line.qty > 0);
+      newCartons.push(carton);
+      workingPlan = [...workingPlan, carton];
+    }
+
+    void persistPlan([...plan, ...newCartons]);
   };
 
   const removeCarton = (cartonId: string) => {
@@ -198,7 +220,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
   return (
     <div className="min-h-screen bg-slate-100 pb-24 text-slate-900">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="max-w-screen-xl mx-auto px-8 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link href="/" className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200">
               <ArrowLeft className="w-5 h-5" />
@@ -219,7 +241,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-6 pt-4">
+      <div className="max-w-screen-xl mx-auto px-8 pt-4">
         <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm">
           <p className="text-sm text-slate-600">
             <span className="font-bold text-slate-900">{assignedTotal}</span> of{" "}
@@ -234,7 +256,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         </div>
       </div>
 
-      <main className="max-w-6xl mx-auto p-6 grid lg:grid-cols-2 gap-6">
+      <main className="max-w-screen-xl mx-auto px-8 py-6 grid lg:grid-cols-[5fr_7fr] gap-8">
         <section className="space-y-4">
           <SurfaceCard className="p-5 border-slate-200">
             <h2 className="font-bold text-slate-900 flex items-center gap-2 mb-1">
@@ -289,21 +311,51 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         </section>
 
         <section className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="font-bold text-slate-900">Inner boxes ({plan.length})</h2>
-            <DashButton
-              onClick={addCarton}
-              variant="ghost"
-              size="sm"
-              className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
+          <h2 className="font-bold text-slate-900">Inner boxes ({plan.length})</h2>
+
+          {/* Bulk add panel */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick add</p>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Boxes</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={bulkBoxCount}
+                  onChange={(e) => setBulkBoxCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={`${fieldInput} w-20 text-center`}
+                />
+              </div>
+              <span className="text-slate-400 text-lg font-light pb-1.5">×</span>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Pcs / box</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={bulkPcsPerBox}
+                  onChange={(e) => setBulkPcsPerBox(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={`${fieldInput} w-20 text-center`}
+                />
+              </div>
+              <button
+                onClick={addBulkCartons}
+                className="flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold px-4 py-1.5 rounded-md mb-0.5"
+              >
+                <Plus className="w-4 h-4" /> Add boxes
+              </button>
+            </div>
+            <button
+              onClick={() => void persistPlan([...plan, emptyCarton()])}
+              className="mt-3 text-xs text-slate-400 hover:text-pink-600 transition-colors"
             >
-              <Plus className="w-4 h-4" /> Add empty box
-            </DashButton>
+              + Add single empty box
+            </button>
           </div>
 
           {plan.length === 0 ? (
-            <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-600">
-              No inner boxes yet. Use auto-generate or add an empty box, then assign SKUs.
+            <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-500 text-sm">
+              No inner boxes yet. Enter boxes and pcs above, then click Add boxes — or use auto-generate on the left.
             </div>
           ) : (
             <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
@@ -326,7 +378,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                   <ul className="space-y-2 mb-3">
                     {carton.lines.map((line) => (
                       <li key={line.barcode} className="flex items-center gap-2 text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
-                        <span className="flex-1 min-w-0 font-medium text-slate-900 leading-snug">{line.productName}</span>
+                        <span className="flex-1 min-w-0 font-medium text-slate-900 leading-snug truncate" title={line.productName}>{line.productName}</span>
                         <label className="sr-only">Quantity</label>
                         <input
                           type="number"
@@ -359,9 +411,10 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                       <DashButton
                         key={item.id}
                         onClick={() => addLineToCarton(carton.id, item, unitsPerBox[item.barcode] ?? 1)}
-                        className="text-xs bg-white border border-slate-300 hover:border-pink-400 hover:bg-pink-50 text-slate-800 px-2.5 py-1.5 rounded-md font-medium text-left"
+                        className="text-xs bg-white border border-slate-300 hover:border-pink-400 hover:bg-pink-50 text-slate-800 px-2.5 py-1.5 rounded-md font-medium text-left max-w-[200px] truncate"
+                        title={item.product_name}
                       >
-                        + {item.product_name.slice(0, 32)}
+                        + {item.product_name}
                         {(remaining[item.barcode] ?? 0) > 1 ? ` (×${Math.min(unitsPerBox[item.barcode] ?? 1, remaining[item.barcode] ?? 1)})` : ""}
                       </DashButton>
                     ))}
