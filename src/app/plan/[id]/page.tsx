@@ -35,6 +35,9 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
   const [items, setItems] = useState<PoItemForPlan[]>([]);
   const [plan, setPlan] = useState<CartonPlanBox[]>([]);
   const [unitsPerBox, setUnitsPerBox] = useState<Record<string, number>>({});
+  const [bulkSkuBarcode, setBulkSkuBarcode] = useState<string>("");
+  const [bulkBoxCount, setBulkBoxCount] = useState(1);
+  const [bulkPcsPerBox, setBulkPcsPerBox] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" as "info" | "error" | "success" });
@@ -53,6 +56,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         defaults[item.barcode] = item.target_qty <= 3 ? item.target_qty : 1;
       });
       setUnitsPerBox(defaults);
+      setBulkSkuBarcode((prev) => prev || itemsData[0]?.barcode || "");
     }
     if (planRow?.plan && Array.isArray(planRow.plan)) {
       setPlan(planRow.plan as CartonPlanBox[]);
@@ -78,6 +82,53 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
 
   const addCarton = () => {
     void persistPlan([...plan, emptyCarton()]);
+  };
+
+  const bulkAddCartons = () => {
+    const sku = bulkSkuBarcode || items[0]?.barcode || "";
+    const item = items.find((i) => i.barcode === sku);
+    if (!item) {
+      setMessage({ text: "Choose a SKU to bulk-add boxes for.", type: "error" });
+      return;
+    }
+
+    const count = Math.max(1, Math.floor(bulkBoxCount || 1));
+    const pcs = Math.max(1, Math.floor(bulkPcsPerBox || 1));
+    const leftStart = remaining[item.barcode] ?? item.target_qty;
+    if (leftStart <= 0) {
+      setMessage({ text: `No remaining pieces for ${item.product_name}.`, type: "error" });
+      return;
+    }
+
+    let left = leftStart;
+    const newCartons: CartonPlanBox[] = [];
+    for (let i = 0; i < count; i++) {
+      if (left <= 0) break;
+      const qty = Math.min(pcs, left);
+      newCartons.push({
+        id: crypto.randomUUID(),
+        lines: [
+          {
+            poItemId: item.id,
+            barcode: item.barcode,
+            productName: item.product_name,
+            qty,
+          },
+        ],
+      });
+      left -= qty;
+    }
+
+    if (newCartons.length === 0) {
+      setMessage({ text: "Nothing to add.", type: "error" });
+      return;
+    }
+
+    void persistPlan([...plan, ...newCartons]);
+    setMessage({
+      text: `Added ${newCartons.length} inner box(es) for ${item.product_name} (${pcs} pcs/box).`,
+      type: "success",
+    });
   };
 
   const removeCarton = (cartonId: string) => {
@@ -177,7 +228,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
     return (
       <div className="min-h-screen bg-gray-50 p-8 flex items-center justify-center">
         <div className="bg-white rounded-xl border p-8 max-w-md text-center">
-          <h2 className="text-xl font-bold mb-2">Plan already finalized</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Plan already finalized</h2>
           <p className="text-gray-600 mb-6">LPN labels were generated for this PO.</p>
           <div className="flex flex-col gap-2">
             <Link href={`/labels/${poId}`} className="bg-blue-600 text-white py-3 rounded-lg font-bold">
@@ -250,7 +301,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                   <li key={item.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
                     <p className="font-semibold text-slate-900 text-sm leading-snug">{item.product_name}</p>
                     {item.retailer_sku && (
-                      <p className="text-xs text-slate-500 font-mono mt-0.5">[{item.retailer_sku}]</p>
+                      <p className="text-xs text-slate-600 font-mono mt-0.5">[{item.retailer_sku}]</p>
                     )}
                     <div className="flex justify-between items-center mt-2 text-sm">
                       <span className="text-slate-600">Ordered: <strong className="text-slate-900">{item.target_qty}</strong></span>
@@ -291,14 +342,57 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
         <section className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="font-bold text-slate-900">Inner boxes ({plan.length})</h2>
-            <DashButton
-              onClick={addCarton}
-              variant="ghost"
-              size="sm"
-              className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
-            >
-              <Plus className="w-4 h-4" /> Add empty box
-            </DashButton>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 shadow-sm">
+                <select
+                  value={bulkSkuBarcode}
+                  onChange={(e) => setBulkSkuBarcode(e.target.value)}
+                  className={`${fieldInput} w-56`}
+                  title="SKU for bulk boxes"
+                >
+                  {items.map((i) => (
+                    <option key={i.id} value={i.barcode}>
+                      {i.product_name.slice(0, 40)}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  value={bulkBoxCount}
+                  onChange={(e) => setBulkBoxCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={`${fieldInput} w-20 text-center`}
+                  title="Number of boxes"
+                />
+                <span className="text-xs font-semibold text-slate-600">boxes ×</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={bulkPcsPerBox}
+                  onChange={(e) => setBulkPcsPerBox(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={`${fieldInput} w-20 text-center`}
+                  title="Pieces per box"
+                />
+                <span className="text-xs font-semibold text-slate-600">pcs</span>
+                <DashButton
+                  onClick={bulkAddCartons}
+                  variant="ghost"
+                  size="sm"
+                  className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
+                  title="Add X boxes with Y pcs"
+                >
+                  <Plus className="w-4 h-4" /> Bulk add
+                </DashButton>
+              </div>
+              <DashButton
+                onClick={addCarton}
+                variant="ghost"
+                size="sm"
+                className="text-pink-700 bg-pink-50 border border-pink-200 hover:bg-pink-100"
+              >
+                <Plus className="w-4 h-4" /> Add empty box
+              </DashButton>
+            </div>
           </div>
 
           {plan.length === 0 ? (
@@ -321,7 +415,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                 </div>
 
                 {carton.lines.length === 0 ? (
-                  <p className="text-sm text-slate-500 mb-3">No SKUs in this box yet — add from the list below.</p>
+                  <p className="text-sm text-slate-600 mb-3">No SKUs in this box yet — add from the list below.</p>
                 ) : (
                   <ul className="space-y-2 mb-3">
                     {carton.lines.map((line) => (
@@ -339,7 +433,7 @@ export default function CartonPlanPage(props: { params: Promise<{ id: string }> 
                         />
                         <DashButton
                           onClick={() => removeLine(carton.id, line.barcode)}
-                          className="text-slate-500 hover:text-red-600 p-1"
+                          className="text-slate-600 hover:text-red-600 p-1"
                           title="Remove from box"
                         >
                           <X className="w-4 h-4" />

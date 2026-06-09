@@ -4,13 +4,17 @@ export function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+/** Readable form fields on light surfaces (warehouse dashboards stay light-themed). */
+export const fieldInput =
+  "w-full border border-gray-300 rounded-lg bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 [color-scheme:light]";
+
 export function SurfaceCard({
   className,
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
   return (
-    <div className={cx("bg-white rounded-xl border border-gray-200 shadow-sm", className)} {...props}>
+    <div className={cx("bg-white rounded-xl border border-gray-200 shadow-sm text-gray-900", className)} {...props}>
       {children}
     </div>
   );
@@ -22,7 +26,7 @@ export function CenteredPage({
   ...props
 }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
   return (
-    <div className={cx("min-h-screen flex flex-col items-center justify-center bg-gray-100 p-8", className)} {...props}>
+    <div className={cx("min-h-screen flex flex-col items-center justify-center bg-gray-100 p-8 text-gray-900", className)} {...props}>
       {children}
     </div>
   );
@@ -34,7 +38,7 @@ const buttonVariants = {
   subtle: "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100",
   success: "bg-green-600 text-white hover:bg-green-700",
   danger: "bg-red-100 text-red-700 hover:bg-red-200",
-  ghost: "text-gray-600 hover:bg-gray-100",
+  ghost: "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
   dark: "bg-black text-white hover:bg-gray-800",
   pink: "bg-pink-600 text-white hover:bg-pink-700",
 } as const;

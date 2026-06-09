@@ -90,7 +90,7 @@ export default function MasterLabelPrinter(props: { params: Promise<{ sessionId:
               key={box.id}
               className="bg-white border-2 border-dashed border-violet-200 w-[20rem] p-6 flex flex-col items-center rounded-2xl shadow-sm print:border-none print:w-[100mm] print:h-[150mm] print:break-after-page print:shadow-none print:rounded-none print:justify-start print:pt-12"
             >
-              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">Aeris · Master carton</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600">Aeris · Master carton</p>
               <h2 className="font-black text-2xl tracking-tight uppercase mt-1 mb-2">Master #{box.box_number}</h2>
               <p className="text-[11px] font-semibold border-b-2 border-black w-full pb-2 mb-3 text-center leading-tight">
                 {poSummary}

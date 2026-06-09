@@ -1,0 +1,88 @@
+export type MarketingRequestStatus = "pending" | "packed" | "shipped" | "cancelled";
+
+export const MARKETING_COURIER_OPTIONS = [
+  "Instant",
+  "Same Day",
+  "Regular",
+  "Kargo",
+] as const;
+
+export type MarketingCourier = (typeof MARKETING_COURIER_OPTIONS)[number];
+
+export type MarketingUserRole = "marketing" | "admin";
+
+export interface MarketingChatParticipant {
+  email: string;
+  display_name: string;
+  role: MarketingUserRole;
+  handle: string;
+}
+
+export interface MarketingRequestMessage {
+  id: string;
+  request_id: string;
+  author_email: string;
+  author_name: string;
+  author_role: MarketingUserRole;
+  body: string;
+  created_at: string;
+}
+
+export interface MarketingUser {
+  id: string;
+  email: string;
+  display_name: string;
+  active: boolean;
+}
+
+export interface MarketingSession {
+  email: string;
+  displayName: string;
+  role: MarketingUserRole;
+}
+
+export interface MarketingRequestItem {
+  id?: string;
+  request_id?: string;
+  product_barcode: string | null;
+  product_name: string;
+  qty: number;
+}
+
+export interface MarketingRequest {
+  id: string;
+  barcode: string;
+  status: MarketingRequestStatus;
+  requested_by_email: string;
+  requested_by_name: string;
+  recipient_name: string;
+  recipient_phone: string | null;
+  due_date: string | null;
+  preferred_courier: MarketingCourier | null;
+  address_line1: string;
+  address_line2: string | null;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  notes: string | null;
+  packed_by: string | null;
+  packed_at: string | null;
+  created_at: string;
+  items?: MarketingRequestItem[];
+}
+
+export interface NewMarketingRequestInput {
+  recipient_name: string;
+  recipient_phone: string;
+  due_date: string;
+  preferred_courier: MarketingCourier;
+  address_line1: string;
+  address_line2?: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  notes?: string;
+  items: { product_barcode?: string; product_name: string; qty: number }[];
+}

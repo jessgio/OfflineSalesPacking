@@ -71,11 +71,10 @@ export interface ManifestMasterBox {
 }
 
 export interface ManifestInnerBox {
-  inner_barcode: string;
+  product_barcode: string;
   po_number: string;
   product_name: string;
-  carton_number: number;
-  scanned_at: string;
+  count: number;
 }
 
 export interface ManifestLooseInnerBox {

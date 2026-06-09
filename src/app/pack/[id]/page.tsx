@@ -486,12 +486,12 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
         <div className="bg-white rounded-xl border p-8 max-w-md text-center">
-          <h2 className="text-xl font-bold mb-2">Inner box plan required</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Inner box plan required</h2>
           <p className="text-gray-600 mb-6">Configure how SKUs are split across inner boxes before packing.</p>
           <Link href={`/plan/${poId}`} className="block bg-pink-600 text-white py-3 rounded-lg font-bold mb-3">
             Plan Inner Boxes
           </Link>
-          <Link href="/" className="text-gray-500 text-sm">
+          <Link href="/" className="text-gray-600 text-sm">
             Back to dashboard
           </Link>
         </div>
@@ -505,15 +505,15 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
         <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-10 text-center">
           <div className="bg-blue-100 text-blue-600 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"><UserCircle className="w-10 h-10" /></div>
           <h1 className="text-3xl font-black text-gray-900 mb-2">{isHistorical ? "Audit Record" : "Check In"}</h1>
-          <p className="text-gray-500 font-medium mb-8">
+          <p className="text-gray-600 font-medium mb-8">
             {isHistorical ? "Enter your initials to view historic audit log." : "Type your initials to unlock this 2FA packing station."}
           </p>
           <form onSubmit={handleClaimPO}>
-            <input ref={claimInputRef} type="text" placeholder="e.g., ADITYA" value={packerName} onChange={(e) => setPackerName(e.target.value)} className="w-full text-center text-2xl font-bold uppercase tracking-widest border-2 border-gray-300 rounded-xl py-4 focus:outline-none focus:border-blue-500 mb-6" />
+            <input ref={claimInputRef} type="text" placeholder="e.g., ADITYA" value={packerName} onChange={(e) => setPackerName(e.target.value)} className="w-full text-center text-2xl font-bold uppercase tracking-widest text-gray-900 border-2 border-gray-300 rounded-xl py-4 focus:outline-none focus:border-blue-500 mb-6" />
             <DashButton type="submit" variant="primary" size="lg" className="w-full rounded-xl py-4">Unlock Station</DashButton>
           </form>
           <div className="mt-6 border-t pt-6">
-             <Link href="/"><DashButton variant="ghost" size="sm" className="text-gray-400 font-medium hover:text-gray-600">← Back to Dashboard</DashButton></Link>
+             <Link href="/"><DashButton variant="ghost" size="sm" className="text-gray-600 font-medium hover:text-gray-600">← Back to Dashboard</DashButton></Link>
           </div>
         </div>
       </div>
@@ -562,7 +562,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
               <h1 className="text-2xl font-bold text-gray-900 border-b pb-2 mb-2">PO: {po.po_number}</h1>
               <div className="flex gap-6 items-center text-sm font-medium">
                 <span className="text-blue-700 font-bold">{po.retailer_name}</span>
-                <span className="flex items-center gap-1.5 text-gray-500 ml-4 border-l pl-4"><Calendar className="w-4 h-4" /> Received: {po.po_date}</span>
+                <span className="flex items-center gap-1.5 text-gray-600 ml-4 border-l pl-4"><Calendar className="w-4 h-4" /> Received: {po.po_date}</span>
                 <span className="flex items-center gap-1.5 text-red-600 font-bold border-l pl-4"><Truck className="w-4 h-4" /> Deadline: {po.delivery_date}</span>
                 <span className="flex items-center gap-1.5 text-green-600 bg-green-50 px-2 py-1 rounded ml-4 border border-green-200 font-bold"><UserCircle className="w-4 h-4" /> Packer: {packerName}</span>
               </div>
@@ -571,7 +571,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
           <div className="text-right">
             <div className="text-3xl font-black text-blue-600">{progressPercent}%</div>
-            <p className="text-gray-500 text-sm font-medium uppercase tracking-wider">
+            <p className="text-gray-600 text-sm font-medium uppercase tracking-wider">
               {isHistorical ? "Fully Processed" : isOrderFullyPacked ? "Ready to Ship" : "Cartons Packed"}
             </p>
           </div>
@@ -597,7 +597,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
               feedback.type === 'error' ? 'bg-red-50 border-red-500 text-red-900' :
               feedback.type === 'complete' ? 'bg-green-50 border-green-500 text-green-900' :
               feedback.type === 'blue' ? 'bg-blue-50 border-blue-500 text-blue-900 animate-pulse' :
-              'bg-white border-gray-300 text-gray-500'
+              'bg-white border-gray-300 text-gray-600'
             }`}>
               {feedback.type === 'blue' ? <Lock className="w-12 h-12 text-blue-600" /> : 
                feedback.type === 'complete' ? <CheckCircle2 className="w-12 h-12 text-green-600" /> :
@@ -612,11 +612,11 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
           <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200">
             <div className="relative w-full sm:max-w-md flex items-center">
-              <Search className="w-5 h-5 absolute left-3 text-gray-400" />
+              <Search className="w-5 h-5 absolute left-3 text-gray-600" />
               <input ref={searchInputRef} type="text" placeholder="Search Product or Master Barcode..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleSearchKeyDown} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              <Filter className="w-5 h-5 text-gray-500" />
+              <Filter className="w-5 h-5 text-gray-600" />
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} onBlur={() => inputRef.current?.focus()} className="border border-gray-300 rounded-lg px-4 py-3 text-gray-700 bg-gray-50 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 w-full cursor-pointer hover:bg-white">
                 <option value="status">Urgent First (Pending on Top)</option>
                 <option value="name-asc">Product Name (A - Z)</option>
@@ -628,7 +628,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                <tr className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-600 uppercase tracking-wider">
                   <th className="p-4 w-12 text-center">2FA</th>
                   <th className="p-4">SKU Group & Exception Checks</th>
                   <th className="p-4 text-center">Inner Boxes Secured</th>
@@ -636,7 +636,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
               </thead>
               <tbody>
                 {displayItems.length === 0 ? (
-                  <tr><td colSpan={3} className="p-8 text-center text-gray-500 font-medium">No items match your search.</td></tr>
+                  <tr><td colSpan={3} className="p-8 text-center text-gray-600 font-medium">No items match your search.</td></tr>
                 ) : displayItems.map((item) => {
                   
                   const requiredCartons = cartonPackMode ? item.target_qty : item.inner_boxes;
@@ -662,12 +662,12 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                         {isComplete ? <CheckCircle2 className="w-6 h-6 text-green-500 mx-auto" /> : 
                          isShort ? <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto" /> : 
                          isCurrentlyStaged ? <Lock className="w-6 h-6 text-blue-600 mx-auto" /> : 
-                         <QrCode className="w-6 h-6 text-gray-300 mx-auto" />}
+                         <QrCode className="w-6 h-6 text-gray-500 mx-auto" />}
                       </td>
 
                       <td className="p-4">
-                        <p className={`font-bold text-lg leading-tight ${done ? 'text-gray-500 line-through' : 'text-gray-900'}`}>{item.product_name}</p>
-                        <p className={`font-mono text-xs mt-1 ${done ? 'text-gray-400' : 'text-gray-500'}`}>Product Barcode: {item.barcode}</p>
+                        <p className={`font-bold text-lg leading-tight ${done ? 'text-gray-600 line-through' : 'text-gray-900'}`}>{item.product_name}</p>
+                        <p className={`font-mono text-xs mt-1 ${done ? 'text-gray-600' : 'text-gray-600'}`}>Product Barcode: {item.barcode}</p>
 
                         <div className="flex items-center gap-4 mt-2">
                           {!done && !isHistorical && (
@@ -681,7 +681,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                                 <AlertTriangle className="w-3 h-3 mr-1"/> Shortage Declared
                               </span>
                               {!isHistorical && (
-                                <DashButton onClick={() => handleUndoShortage(item.id, item.product_name)} className="text-gray-500 hover:text-gray-900 text-xs uppercase pr-2">
+                                <DashButton onClick={() => handleUndoShortage(item.id, item.product_name)} className="text-gray-600 hover:text-gray-900 text-xs uppercase pr-2">
                                   <RotateCcw className="w-3 h-3" /> UNDO
                                 </DashButton>
                               )}
@@ -698,7 +698,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
                       <td className="p-4 text-center">
                         <span className={`text-3xl font-black ${isComplete ? 'text-green-600' : isShort ? 'text-amber-600' : isCurrentlyStaged ? 'text-blue-700' : 'text-gray-900'}`}>{securedCartons}</span>
-                        <span className="text-gray-400 font-bold mx-2">/</span>
+                        <span className="text-gray-600 font-bold mx-2">/</span>
                         <span className="text-gray-600 font-bold text-xl">{requiredCartons}</span>
                       </td>
                     </tr>
@@ -720,16 +720,16 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
             <p className="text-sm font-semibold text-gray-600">Offical LPN Packing Slip — {po?.status}</p>
           </div>
           <div className="text-right">
-            <h2 className="text-xl font-bold mb-1">PO Number: {po.po_number}</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-1">PO Number: {po.po_number}</h2>
             <p className="text-sm font-medium">B2B Retailer: <strong>{po.retailer_name}</strong></p>
           </div>
         </div>
 
         <div className="grid grid-cols-4 gap-6 mb-8 bg-gray-100 p-4 rounded-lg border border-gray-300">
-           <div><p className="text-xs font-bold text-gray-500 uppercase">PO Date</p><p className="font-semibold text-lg">{po.po_date}</p></div>
-           <div><p className="text-xs font-bold text-gray-500 uppercase">Delivery Deadline</p><p className="font-semibold text-lg">{po.delivery_date}</p></div>
-           <div><p className="text-xs font-bold text-gray-500 uppercase">2FA Authorize User</p><p className="font-bold text-lg text-blue-800 uppercase">{po?.packed_by || packerName}</p></div>
-           <div><p className="text-xs font-bold text-gray-500 uppercase">Print Timestamp</p><p className="font-semibold text-sm">{new Date().toLocaleString()}</p></div>
+           <div><p className="text-xs font-bold text-gray-600 uppercase">PO Date</p><p className="font-semibold text-lg text-gray-900">{po.po_date}</p></div>
+           <div><p className="text-xs font-bold text-gray-600 uppercase">Delivery Deadline</p><p className="font-semibold text-lg text-gray-900">{po.delivery_date}</p></div>
+           <div><p className="text-xs font-bold text-gray-600 uppercase">2FA Authorize User</p><p className="font-bold text-lg text-blue-800 uppercase">{po?.packed_by || packerName}</p></div>
+           <div><p className="text-xs font-bold text-gray-600 uppercase">Print Timestamp</p><p className="font-semibold text-sm text-gray-900">{new Date().toLocaleString()}</p></div>
         </div>
 
         <table className="w-full text-left border-collapse border border-black mb-12">

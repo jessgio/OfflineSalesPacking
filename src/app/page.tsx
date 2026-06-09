@@ -13,7 +13,7 @@ import { DashButton, SurfaceCard } from "../components/dashboard/primitives";
 const sourceTabBtnBase = "px-4 py-2 text-sm font-bold flex items-center gap-2 rounded-md transition";
 const queueTabBtnBase = "px-6 py-3 font-bold text-lg rounded-t-lg transition-colors border-b-4";
 const emptyStateClass =
-  "col-span-full p-8 border-2 border-dashed border-gray-200 rounded-xl text-center text-gray-500 bg-white";
+  "col-span-full p-8 border-2 border-dashed border-gray-200 rounded-xl text-center text-gray-600 bg-white";
 const bulkActionBtnBase =
   "text-sm font-bold rounded-lg transition disabled:opacity-50 flex items-center gap-2";
 
@@ -436,22 +436,29 @@ export default function ManagerDashboard() {
         <header className="mb-8 border-b pb-4 border-gray-200 flex flex-wrap justify-between items-start gap-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Aeris Fulfillment Dashboard</h1>
-            <p className="text-gray-500 mt-1">LPN (Inner Box 2FA) Scan-to-Pack Engine</p>
+            <p className="text-gray-600 mt-1">LPN (Inner Box 2FA) Scan-to-Pack Engine</p>
           </div>
-          <Link href="/master-ship">
-            <DashButton variant="primary" size="lg" className="bg-purple-600 rounded-xl hover:bg-purple-700 shadow-sm">
-              <Box className="w-5 h-5" /> Master Box Shipping
-            </DashButton>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/marketing/fulfill">
+              <DashButton variant="primary" size="lg" className="bg-violet-600 rounded-xl hover:bg-violet-700 shadow-sm">
+                <Package className="w-5 h-5" /> Marketing Fulfillment
+              </DashButton>
+            </Link>
+            <Link href="/master-ship">
+              <DashButton variant="primary" size="lg" className="bg-purple-600 rounded-xl hover:bg-purple-700 shadow-sm">
+                <Box className="w-5 h-5" /> Master Box Shipping
+              </DashButton>
+            </Link>
+          </div>
         </header>
 
         <SurfaceCard className="p-8 mb-8 max-w-2xl">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b pb-4">
             <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800"><UploadCloud className="text-blue-500" /> Upload PO</h2>
             <div className="flex bg-gray-100 p-1 rounded-lg mt-4 sm:mt-0">
-               <DashButton onClick={() => { setActiveTab("DFI"); setMessage({text:"", type:""}); }} className={`${sourceTabBtnBase} ${activeTab === 'DFI' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}><Store className="w-4 h-4" /> DFI / Guardian</DashButton>
-               <DashButton onClick={() => { setActiveTab("SOCIOLLA"); setMessage({text:"", type:""}); }} className={`${sourceTabBtnBase} ${activeTab === 'SOCIOLLA' ? 'bg-white shadow-sm text-pink-600' : 'text-gray-500 hover:text-gray-700'}`}><Store className="w-4 h-4" /> Sociolla</DashButton>
-               <DashButton onClick={() => { setActiveTab("RESELLER"); setMessage({text:"", type:""}); }} className={`${sourceTabBtnBase} ${activeTab === 'RESELLER' ? 'bg-white shadow-sm text-amber-600' : 'text-gray-500 hover:text-gray-700'}`}><Users className="w-4 h-4" /> Resellers</DashButton>
+               <DashButton onClick={() => { setActiveTab("DFI"); setMessage({text:"", type:""}); }} className={`${sourceTabBtnBase} ${activeTab === 'DFI' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-600 hover:text-gray-700'}`}><Store className="w-4 h-4" /> DFI / Guardian</DashButton>
+               <DashButton onClick={() => { setActiveTab("SOCIOLLA"); setMessage({text:"", type:""}); }} className={`${sourceTabBtnBase} ${activeTab === 'SOCIOLLA' ? 'bg-white shadow-sm text-pink-600' : 'text-gray-600 hover:text-gray-700'}`}><Store className="w-4 h-4" /> Sociolla</DashButton>
+               <DashButton onClick={() => { setActiveTab("RESELLER"); setMessage({text:"", type:""}); }} className={`${sourceTabBtnBase} ${activeTab === 'RESELLER' ? 'bg-white shadow-sm text-amber-600' : 'text-gray-600 hover:text-gray-700'}`}><Users className="w-4 h-4" /> Resellers</DashButton>
             </div>
           </div>
           <div className={`border-2 border-dashed rounded-xl p-8 text-center transition tracking-wide relative ${activeTab === 'DFI' ? 'border-gray-300 bg-gray-50 hover:bg-gray-100' : activeTab === 'SOCIOLLA' ? 'border-pink-200 bg-pink-50/30 hover:bg-pink-50' : 'border-amber-200 bg-amber-50/30 hover:bg-amber-50'}`}>
@@ -459,7 +466,7 @@ export default function ManagerDashboard() {
             {uploading ? (
               <div className="flex flex-col items-center text-blue-600"><Loader2 className="animate-spin w-8 h-8 mb-2" /><span className="font-semibold">Processing Data...</span></div>
             ) : (
-              <div><p className="font-semibold text-lg text-gray-700">Click or Drag <span className="font-bold">{activeTab}</span> Files Here</p><p className="text-sm text-gray-500 mt-1">{activeTab === "SOCIOLLA" ? "Upload PDF file. Set inner box first, then print LPN labels." : "Multi-file supported. LPN mode enabled."}</p></div>
+              <div><p className="font-semibold text-lg text-gray-700">Click or Drag <span className="font-bold">{activeTab}</span> Files Here</p><p className="text-sm text-gray-600 mt-1">{activeTab === "SOCIOLLA" ? "Upload PDF file. Set inner box first, then print LPN labels." : "Multi-file supported. LPN mode enabled."}</p></div>
             )}
           </div>
           {message.text && (
@@ -468,10 +475,10 @@ export default function ManagerDashboard() {
         </SurfaceCard>
 
         <div className="flex gap-4 mb-6 border-b border-gray-200 pb-2">
-           <DashButton onClick={() => setViewMode("ACTIVE")} className={`${queueTabBtnBase} rounded-t-lg rounded-b-none ${viewMode === "ACTIVE" ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+           <DashButton onClick={() => setViewMode("ACTIVE")} className={`${queueTabBtnBase} rounded-t-lg rounded-b-none ${viewMode === "ACTIVE" ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-800'}`}>
              <span className="flex items-center gap-2"><Package className="w-5 h-5" /> Active Queue ({activePOs.length})</span>
            </DashButton>
-           <DashButton onClick={() => setViewMode("HISTORY")} className={`${queueTabBtnBase} rounded-t-lg rounded-b-none ${viewMode === "HISTORY" ? 'border-gray-800 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+           <DashButton onClick={() => setViewMode("HISTORY")} className={`${queueTabBtnBase} rounded-t-lg rounded-b-none ${viewMode === "HISTORY" ? 'border-gray-800 text-gray-900' : 'border-transparent text-gray-600 hover:text-gray-800'}`}>
              <span className="flex items-center gap-2"><Archive className="w-5 h-5" /> Historical Archive ({historyPOs.length})</span>
            </DashButton>
         </div>
@@ -491,7 +498,7 @@ export default function ManagerDashboard() {
                          {isSelected && <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                        </div>
                      </div>
-                    <DashButton onClick={() => handleDeletePO(po.id, po.po_number)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100" title="Delete PO"><Trash2 className="w-5 h-5" /></DashButton>
+                    <DashButton onClick={() => handleDeletePO(po.id, po.po_number)} className="absolute top-4 right-4 p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100" title="Delete PO"><Trash2 className="w-5 h-5" /></DashButton>
                      <div className="pl-8 pt-1">
                        <div className="flex justify-between items-start mb-3">
                          <h3 className="font-bold text-lg text-gray-900 pr-8 line-clamp-2">PO: {po.po_number}</h3>
@@ -532,7 +539,7 @@ export default function ManagerDashboard() {
                          {isSelected && <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                        </div>
                      </div>
-                    <DashButton onClick={() => handleDeletePO(po.id, po.po_number)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100"><Trash2 className="w-5 h-5" /></DashButton>
+                    <DashButton onClick={() => handleDeletePO(po.id, po.po_number)} className="absolute top-4 right-4 p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100"><Trash2 className="w-5 h-5" /></DashButton>
                      <div className="pl-8 pt-1">
                        <div className="flex justify-between items-start mb-3">
                          <h3 className="font-bold text-lg text-gray-900 pr-8 line-clamp-2">PO: {po.po_number}</h3>
@@ -540,7 +547,7 @@ export default function ManagerDashboard() {
                        </div>
                        <p className="text-sm font-bold text-gray-600 mb-4">{po.retailer_name}</p>
                        <div className="flex justify-between items-center bg-gray-200/50 px-3 py-2 rounded mb-2">
-                         <span className="text-xs font-bold text-gray-500 uppercase">Packed By</span>
+                         <span className="text-xs font-bold text-gray-600 uppercase">Packed By</span>
                          <span className="font-bold text-gray-800">{po.packed_by || 'Unknown'}</span>
                        </div>
                      </div>
@@ -560,10 +567,10 @@ export default function ManagerDashboard() {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white border border-gray-200 shadow-2xl rounded-2xl px-6 py-4 flex items-center justify-between gap-8 z-50 w-full max-w-2xl">
           <div className="flex items-center gap-4">
              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-xl ${viewMode === 'ACTIVE' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>{selectedPOs.length}</div>
-             <div><p className="font-bold text-gray-900 leading-tight">POs Selected</p><p className="text-xs text-gray-500 font-medium">{viewMode === 'ACTIVE' ? "Batch pick or delete" : "Bulk purge archive"}</p></div>
+             <div><p className="font-bold text-gray-900 leading-tight">POs Selected</p><p className="text-xs text-gray-600 font-medium">{viewMode === 'ACTIVE' ? "Batch pick or delete" : "Bulk purge archive"}</p></div>
           </div>
           <div className="flex gap-2">
-            <DashButton onClick={() => setSelectedPOs([])} variant="ghost" size="sm" className="text-gray-500"><X className="w-4 h-4" /> Clear</DashButton>
+            <DashButton onClick={() => setSelectedPOs([])} variant="ghost" size="sm" className="text-gray-600"><X className="w-4 h-4" /> Clear</DashButton>
             <DashButton onClick={handleBulkDelete} disabled={uploading} variant="danger" size="md" className={bulkActionBtnBase}><Trash2 className="w-4 h-4" /> Delete</DashButton>
             {viewMode === "ACTIVE" && (
               <DashButton onClick={handleMergePOs} disabled={selectedPOs.length < 2 || uploading} variant="primary" size="md" className={bulkActionBtnBase}><Combine className="w-4 h-4" /> Merge POs</DashButton>

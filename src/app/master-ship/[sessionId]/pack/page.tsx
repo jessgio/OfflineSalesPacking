@@ -336,7 +336,7 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
                   </p>
                 </>
               ) : (
-                <p className="text-2xl font-bold text-slate-400 py-4">No master selected</p>
+                <p className="text-2xl font-bold text-slate-600 py-4">No master selected</p>
               )}
             </div>
           </div>
@@ -352,11 +352,11 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
               value={scanInput}
               onChange={(e) => setScanInput(e.target.value)}
               disabled={!canEdit || busy}
-              className="w-full text-center text-xl sm:text-2xl font-mono p-4 sm:p-5 border-2 border-violet-400 rounded-2xl bg-white focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:opacity-50 shadow-inner"
+              className="w-full text-center text-xl sm:text-2xl font-mono text-gray-900 p-4 sm:p-5 border-2 border-violet-400 rounded-2xl bg-white focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:opacity-50 shadow-inner"
               placeholder="Waiting for scan…"
               autoComplete="off"
             />
-            <p className="mt-2 text-xs text-slate-500 text-center">
+            <p className="mt-2 text-xs text-slate-600 text-center">
               Master labels start with <span className="font-mono font-bold">MB</span> · Inner labels are numeric LPNs
             </p>
           </form>
@@ -364,11 +364,11 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
           {activeMaster && (
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden" data-no-refocus>
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
-                <Undo2 className="w-4 h-4 text-slate-500" />
+                <Undo2 className="w-4 h-4 text-slate-600" />
                 <p className="text-sm font-bold text-slate-800">Contents of master #{activeMaster.box_number}</p>
               </div>
               {activeContents.length === 0 ? (
-                <p className="text-center text-slate-500 py-8 text-sm">No inner cartons scanned yet</p>
+                <p className="text-center text-slate-600 py-8 text-sm">No inner cartons scanned yet</p>
               ) : (
                 <ul className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
                   {activeContents.map((c) => (
@@ -378,7 +378,7 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
                         <p className="text-sm text-slate-600 mt-1 truncate">
                           {c.product_name}
                         </p>
-                        <p className="text-xs text-slate-500">{c.po_number}</p>
+                        <p className="text-xs text-slate-600">{c.po_number}</p>
                       </div>
                       {canEdit && (
                         <button

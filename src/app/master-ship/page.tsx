@@ -176,7 +176,7 @@ export default function MasterShipHome() {
           className={`${tabBtnBase} ${
             moduleTab === "ACTIVE"
               ? "border-violet-600 text-violet-700"
-              : "border-transparent text-slate-500 hover:text-slate-700"
+              : "border-transparent text-slate-600 hover:text-slate-700"
           }`}
         >
           Active master packing queue ({activeMasterPos.length})
@@ -187,7 +187,7 @@ export default function MasterShipHome() {
           className={`${tabBtnBase} ${
             moduleTab === "HISTORY"
               ? "border-violet-600 text-violet-700"
-              : "border-transparent text-slate-500 hover:text-slate-700"
+              : "border-transparent text-slate-600 hover:text-slate-700"
           }`}
         >
           Master packing history ({historyMasterPos.length})
@@ -329,7 +329,7 @@ export default function MasterShipHome() {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">PO number</p>
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-600">PO number</p>
                       <p className="font-bold text-slate-900 text-lg leading-tight mt-0.5">{po.po_number}</p>
                       <p className="text-sm text-violet-800 font-semibold mt-1">{po.retailer_name}</p>
                       <div className="mt-3">

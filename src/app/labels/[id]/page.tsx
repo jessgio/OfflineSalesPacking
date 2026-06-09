@@ -75,7 +75,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
         <Loader2 className="animate-spin w-12 h-12 text-blue-600 mb-4" />
-        <p className="text-gray-500 font-medium">Generating Thermal Configurations...</p>
+        <p className="text-gray-600 font-medium">Generating Thermal Configurations...</p>
       </div>
     );
   }
@@ -85,7 +85,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
       <CenteredPage>
         <SurfaceCard className="p-8 text-center max-w-md w-full">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Plan inner boxes first</h2>
-          <p className="text-gray-500 mb-6">Assign SKUs to inner boxes before printing LPN labels.</p>
+          <p className="text-gray-600 mb-6">Assign SKUs to inner boxes before printing LPN labels.</p>
           <Link href={`/plan/${poId}`}>
             <DashButton variant="pink" size="md" className="px-6 w-full">
               Plan Inner Boxes
@@ -101,7 +101,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
       <CenteredPage>
         <SurfaceCard className="p-8 text-center max-w-md w-full">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">No Labels Found</h2>
-          <p className="text-gray-500 mb-6">There are no inner boxes registered for this PO.</p>
+          <p className="text-gray-600 mb-6">There are no inner boxes registered for this PO.</p>
           <Link href="/">
              <DashButton variant="primary" size="md" className="px-6 w-full">
                Return Home
@@ -158,7 +158,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
                    fontSize={16}
                    background="transparent"
                 />
-                <p className="text-[11px] text-gray-500 mt-5 uppercase font-bold tracking-widest">LPN Verification Required</p>
+                <p className="text-[11px] text-gray-600 mt-5 uppercase font-bold tracking-widest">LPN Verification Required</p>
              </div>
           </div>
         ))}

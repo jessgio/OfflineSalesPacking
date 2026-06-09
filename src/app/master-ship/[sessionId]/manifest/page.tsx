@@ -96,7 +96,7 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
 
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden print:shadow-none print:border-none print:rounded-none">
           <div className="px-6 sm:px-10 py-8 border-b-4 border-slate-900 print:px-0">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Aeris Beaute</p>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-600">Aeris Beaute</p>
             <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 uppercase tracking-tight">
               Master shipment manifest
             </h1>
@@ -105,18 +105,18 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
             </p>
             <div className="grid sm:grid-cols-2 gap-6 mt-6">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Packed by</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Packed by</p>
                 <p className="text-xl font-bold text-slate-900 mt-0.5">{packedBy ?? "—"}</p>
               </div>
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Completed</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Completed</p>
                 <p className="text-base font-semibold text-slate-800 mt-0.5 leading-snug">{completedLabel}</p>
               </div>
             </div>
           </div>
 
           <div className="px-6 sm:px-10 py-6 print:px-0">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3">Purchase orders</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-600 mb-3">Purchase orders</h2>
             <ul className="space-y-2 mb-8">
               {pos.map((po) => (
                 <li
@@ -140,7 +140,9 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
               <EmptyState message="No master boxes in this session" />
             ) : (
               <div className="space-y-8">
-                {masterBoxes.map((master) => (
+                {masterBoxes.map((master) => {
+                  const innerCartonCount = master.inner_boxes.reduce((sum, row) => sum + row.count, 0);
+                  return (
                   <article key={master.master_barcode} className="break-inside-avoid">
                     <header className="bg-slate-900 text-white px-4 py-3 rounded-t-xl flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                       <span className="text-lg font-black">Master #{master.box_number}</span>
@@ -148,12 +150,12 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
                     </header>
                     <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-slate-100 border-x border-slate-200 text-sm">
                       <span className="font-semibold text-slate-700">
-                        {master.inner_boxes.length} inner carton{master.inner_boxes.length === 1 ? "" : "s"}
+                        {innerCartonCount} inner carton{innerCartonCount === 1 ? "" : "s"}
                       </span>
                       <StatusBadge status={master.status} />
                     </div>
                     {master.inner_boxes.length === 0 ? (
-                      <p className="text-sm text-slate-500 italic px-4 py-4 border border-t-0 border-slate-200 rounded-b-xl">
+                      <p className="text-sm text-slate-600 italic px-4 py-4 border border-t-0 border-slate-200 rounded-b-xl">
                         No inner boxes assigned
                       </p>
                     ) : (
@@ -161,23 +163,26 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
                         <table className={tableBaseClass}>
                           <thead>
                             <tr className="bg-slate-50 text-left border-b border-slate-200">
-                              <th className="py-3 px-4 font-bold text-slate-700">Inner LPN</th>
+                              <th className="py-3 px-4 font-bold text-slate-700 w-16">Qty</th>
+                              <th className="py-3 px-4 font-bold text-slate-700">SKU</th>
                               <th className="py-3 px-4 font-bold text-slate-700">PO</th>
                               <th className="py-3 px-4 font-bold text-slate-700">Product</th>
-                              <th className="py-3 px-4 font-bold text-slate-700 w-20">Carton</th>
                             </tr>
                           </thead>
                           <tbody>
                             {master.inner_boxes.map((inner) => (
-                              <tr key={inner.inner_barcode} className="border-b border-slate-100 last:border-0">
+                              <tr
+                                key={`${inner.product_barcode}:${inner.po_number}`}
+                                className="border-b border-slate-100 last:border-0"
+                              >
+                                <td className="py-3 px-4 font-bold text-slate-900 tabular-nums">{inner.count}</td>
                                 <td className="py-3 px-4">
-                                  <span className="font-mono font-bold text-slate-900">{inner.inner_barcode}</span>
+                                  <span className="font-mono text-slate-800">
+                                    {inner.product_barcode || "—"}
+                                  </span>
                                 </td>
                                 <td className="py-3 px-4 text-slate-800">{inner.po_number}</td>
                                 <td className="py-3 px-4 text-slate-700">{inner.product_name}</td>
-                                <td className="py-3 px-4 text-slate-600 tabular-nums">
-                                  {inner.carton_number > 0 ? `#${inner.carton_number}` : "—"}
-                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -185,12 +190,13 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
                       </div>
                     )}
                   </article>
-                ))}
+                  );
+                })}
               </div>
             )}
 
             <div className="mt-10">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600 mb-3">
                 Inner boxes not assigned to any master
               </h3>
               {looseInnerBoxes.length === 0 ? (
@@ -231,7 +237,7 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
             </div>
           </div>
 
-          <footer className="px-6 py-4 border-t border-slate-100 text-center text-xs text-slate-400 print:mt-8">
+          <footer className="px-6 py-4 border-t border-slate-100 text-center text-xs text-slate-600 print:mt-8">
             Aeris Master Box Shipping
           </footer>
         </div>

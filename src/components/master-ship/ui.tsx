@@ -27,7 +27,7 @@ export function BackLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-800 transition mb-3"
+      className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900 transition mb-3"
     >
       <ArrowLeft className="w-4 h-4 shrink-0" />
       {label}
@@ -45,7 +45,7 @@ export function PageTitle({
   return (
     <header className="mb-8 pb-6 border-b border-slate-200">
       <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">{title}</h1>
-      {subtitle && <p className="mt-2 text-base text-slate-600 leading-relaxed max-w-2xl">{subtitle}</p>}
+      {subtitle && <p className="mt-2 text-base text-slate-700 leading-relaxed max-w-2xl">{subtitle}</p>}
     </header>
   );
 }
@@ -81,7 +81,7 @@ export function TopBar({
               <h1 className="text-lg sm:text-xl font-bold text-slate-900 truncate">{title}</h1>
               {badge}
             </div>
-            {subtitle && <div className="mt-0.5 text-sm text-slate-600">{subtitle}</div>}
+            {subtitle && <div className="mt-0.5 text-sm text-slate-700">{subtitle}</div>}
           </div>
         </div>
         {actions && <div className="flex flex-wrap gap-2 sm:justify-end">{actions}</div>}
@@ -147,7 +147,7 @@ export function SectionCard({
             {Icon && <Icon className="w-5 h-5 text-violet-600 shrink-0" />}
             {title}
           </h2>
-          {description && <p className="mt-1 text-sm text-slate-600 leading-relaxed">{description}</p>}
+          {description && <p className="mt-1 text-sm text-slate-700 leading-relaxed">{description}</p>}
         </div>
         {action}
       </div>
@@ -177,7 +177,7 @@ export function WorkflowSteps({ steps }: { steps: string[] }) {
 export function StatTile({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
-      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-600">{label}</p>
       <p className="mt-1 text-2xl font-bold text-slate-900 tabular-nums">{value}</p>
     </div>
   );
@@ -206,7 +206,7 @@ export function EmptyState({ message, hint }: { message: string; hint?: string }
   return (
     <div className="text-center py-10 px-4 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
       <p className="text-slate-700 font-semibold">{message}</p>
-      {hint && <p className="mt-2 text-sm text-slate-500">{hint}</p>}
+      {hint && <p className="mt-2 text-sm text-slate-600">{hint}</p>}
     </div>
   );
 }

@@ -500,17 +500,45 @@ export async function buildManifest(sessionId: string): Promise<{
 
   const master_boxes: ManifestMasterBox[] = masters.map((master) => {
     const innerForMaster = contents.filter((c) => c.master_box_id === master.id);
-    const inner_boxes: ManifestInnerBox[] = innerForMaster.map((c) => {
+    const grouped = new Map<
+      string,
+      { product_barcode: string; po_numbers: Set<string>; product_name: string; count: number }
+    >();
+
+    for (const c of innerForMaster) {
       const box = boxById[c.po_box_id];
-      const productKey = box ? `${c.po_id}:${box.product_barcode}` : "";
-      return {
-        inner_barcode: c.inner_barcode,
-        po_number: poNumberById[c.po_id] ?? "Unknown",
-        product_name: productNameByPoBarcode[productKey] ?? "Aeris Product",
-        carton_number: box?.carton_number ?? 0,
-        scanned_at: c.scanned_at,
-      };
-    });
+      const productBarcode = box?.product_barcode ?? "";
+      const groupKey = productBarcode || `unknown:${c.po_id}:${c.inner_barcode}`;
+      const productKey = box ? `${c.po_id}:${productBarcode}` : "";
+      const poNumber = poNumberById[c.po_id] ?? "Unknown";
+      const productName = productNameByPoBarcode[productKey] ?? "Aeris Product";
+
+      const existing = grouped.get(groupKey);
+      if (existing) {
+        existing.count += 1;
+        existing.po_numbers.add(poNumber);
+      } else {
+        grouped.set(groupKey, {
+          product_barcode: productBarcode,
+          po_numbers: new Set([poNumber]),
+          product_name: productName,
+          count: 1,
+        });
+      }
+    }
+
+    const inner_boxes: ManifestInnerBox[] = [...grouped.values()]
+      .map(({ product_barcode, po_numbers, product_name, count }) => ({
+        product_barcode,
+        po_number: [...po_numbers].sort((a, b) => a.localeCompare(b)).join(", "),
+        product_name,
+        count,
+      }))
+      .sort(
+        (a, b) =>
+          a.po_number.localeCompare(b.po_number) || a.product_name.localeCompare(b.product_name)
+      );
+
     return {
       box_number: master.box_number,
       master_barcode: master.master_barcode,

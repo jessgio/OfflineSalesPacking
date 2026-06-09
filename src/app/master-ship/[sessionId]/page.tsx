@@ -245,7 +245,7 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
             {pos.map((po) => (
               <li key={po.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 py-3 first:pt-0 last:pb-0">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">PO</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-600">PO</p>
                   <p className="font-bold text-slate-900">{po.po_number}</p>
                 </div>
                 <p className="text-sm text-slate-600 sm:text-right">{po.retailer_name}</p>
