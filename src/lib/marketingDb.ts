@@ -201,10 +201,13 @@ export async function deleteMarketingRequest(
       .from("marketing_requests")
       .delete()
       .eq("id", id)
+      .eq("status", "shipped")
       .select("id");
 
     if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete request"));
-    if (!data?.length) throw new Error("Request not found.");
+    if (!data?.length) {
+      throw new Error("Only completed (shipped) orders can be deleted.");
+    }
     return;
   }
 

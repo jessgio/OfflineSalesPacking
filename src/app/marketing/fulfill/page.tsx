@@ -13,7 +13,6 @@ import {
   PackageCheck,
   Printer,
   ScanLine,
-  Trash2,
   Truck,
   X,
 } from "lucide-react";
@@ -138,9 +137,13 @@ export default function MarketingFulfillPage() {
 
   const handleDeleteRequest = async (req: MarketingRequest) => {
     if (!chatSession || chatSession.role !== "admin") return;
+    if (req.status !== "shipped") {
+      setError("Only completed (shipped) orders can be deleted.");
+      return;
+    }
 
     const confirmed = window.confirm(
-      `Delete request for ${req.recipient_name} (${req.barcode})?\n\nThis removes it from the marketing portal and cannot be undone.`
+      `Delete completed shipment for ${req.recipient_name} (${req.barcode})?\n\nThis removes it from the marketing portal and cannot be undone.`
     );
     if (!confirmed) return;
 
@@ -476,7 +479,8 @@ export default function MarketingFulfillPage() {
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/80">
                 <h2 className="font-bold text-gray-900">Shipped orders</h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  Click a row to view order details, or select rows to export audit CSV.
+                  Click a row to view order details, select rows to export audit CSV, or delete completed
+                  shipments as admin.
                 </p>
               </div>
               <div className="overflow-x-auto">
@@ -718,22 +722,6 @@ export default function MarketingFulfillPage() {
                       <Truck className="w-4 h-4" /> Shipped
                     </DashButton>
                   )}
-                  {chatSession?.role === "admin" && (
-                    <DashButton
-                      variant="danger"
-                      size="md"
-                      className="flex-1 min-w-[120px]"
-                      disabled={deletingId === req.id}
-                      onClick={() => handleDeleteRequest(req)}
-                    >
-                      {deletingId === req.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                      Delete
-                    </DashButton>
-                  )}
                 </div>
               </SurfaceCard>
             );
@@ -807,7 +795,7 @@ export default function MarketingFulfillPage() {
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
           onDelete={
-            chatSession?.role === "admin"
+            chatSession?.role === "admin" && viewingRequest.status === "shipped"
               ? () => handleDeleteRequest(viewingRequest)
               : undefined
           }
