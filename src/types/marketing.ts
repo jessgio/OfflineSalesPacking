@@ -68,6 +68,8 @@ export interface MarketingRequest {
   notes: string | null;
   packed_by: string | null;
   packed_at: string | null;
+  shipped_by: string | null;
+  shipped_at: string | null;
   created_at: string;
   items?: MarketingRequestItem[];
 }

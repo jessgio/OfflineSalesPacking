@@ -225,6 +225,40 @@ export async function fetchPendingMarketingRequests(): Promise<MarketingRequest[
   }));
 }
 
+export async function fetchCompletedMarketingRequests(): Promise<MarketingRequest[]> {
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .select("*, marketing_request_items(*)")
+    .eq("status", "shipped")
+    .order("shipped_at", { ascending: false, nullsFirst: false });
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to load completed requests"));
+
+  return (data ?? []).map((row) => ({
+    ...row,
+    items: row.marketing_request_items ?? [],
+  }));
+}
+
+export async function fetchMarketingRequestsByIds(ids: string[]): Promise<MarketingRequest[]> {
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .select("*, marketing_request_items(*)")
+    .in("id", ids);
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to load requests"));
+
+  const mapped = (data ?? []).map((row) => ({
+    ...row,
+    items: row.marketing_request_items ?? [],
+  }));
+
+  const byId = new Map(mapped.map((row) => [row.id, row]));
+  return ids.map((id) => byId.get(id)).filter((row): row is MarketingRequest => Boolean(row));
+}
+
 export async function fetchMarketingRequestById(id: string): Promise<MarketingRequest | null> {
   const { data, error } = await supabase
     .from("marketing_requests")
@@ -268,11 +302,54 @@ export async function markMarketingRequestPacked(
   if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to mark as packed"));
 }
 
-export async function markMarketingRequestShipped(id: string): Promise<void> {
+export async function markMarketingRequestsPackedBulk(
+  ids: string[],
+  packedBy: string
+): Promise<MarketingRequest[]> {
+  const initials = packedBy.trim().toUpperCase();
+  if (!initials) throw new Error("Enter your packer initials first.");
+  if (ids.length === 0) throw new Error("Select at least one order.");
+
+  const packedAt = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .update({
+      status: "packed",
+      packed_by: initials,
+      packed_at: packedAt,
+    })
+    .in("id", ids)
+    .eq("status", "pending")
+    .select("*, marketing_request_items(*)");
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to mark orders as packed"));
+
+  const packed = (data ?? []).map((row) => ({
+    ...row,
+    items: row.marketing_request_items ?? [],
+  }));
+
+  if (packed.length === 0) {
+    throw new Error("No pending orders were packed. Selected orders may already be packed or shipped.");
+  }
+
+  const byId = new Map(packed.map((row) => [row.id, row]));
+  return ids.map((id) => byId.get(id)).filter((row): row is MarketingRequest => Boolean(row));
+}
+
+export async function markMarketingRequestShipped(id: string, shippedBy: string): Promise<void> {
+  const initials = shippedBy.trim().toUpperCase();
+  if (!initials) throw new Error("Enter your initials before marking shipped.");
+
   const { error } = await supabase
     .from("marketing_requests")
-    .update({ status: "shipped" })
-    .eq("id", id);
+    .update({
+      status: "shipped",
+      shipped_at: new Date().toISOString(),
+      shipped_by: initials,
+    })
+    .eq("id", id)
+    .eq("status", "packed");
 
   if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to mark as shipped"));
 }
