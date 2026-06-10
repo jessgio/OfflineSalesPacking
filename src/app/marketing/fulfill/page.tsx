@@ -7,6 +7,7 @@ import {
   Archive,
   ChevronRight,
   Download,
+  List,
   Loader2,
   Package,
   PackageCheck,
@@ -18,16 +19,22 @@ import {
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../../components/dashboard/primitives";
 import { ChatLoginBar } from "../../../components/marketing/ChatLoginBar";
 import { MarketingChatUnreadBadge } from "../../../components/marketing/MarketingChatUnreadBadge";
+import { MarketingNewOrdersBadge } from "../../../components/marketing/MarketingNewOrdersBadge";
 import { MarketingRequestDetailModal } from "../../../components/marketing/MarketingRequestDetailModal";
+import { MarketingShipmentsRegistry } from "../../../components/marketing/MarketingShipmentsRegistry";
 import { RequestChat } from "../../../components/marketing/RequestChat";
+import { useAutoRefresh } from "../../../hooks/useAutoRefresh";
 import { useMarketingChatUnread } from "../../../hooks/useMarketingChatUnread";
+import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrders";
 import { getMarketingSession } from "../../../lib/marketingAuth";
 import type { MarketingSession } from "../../../types/marketing";
 import {
+  fetchAllMarketingRequestsForRegistry,
   fetchCompletedMarketingRequests,
   fetchMarketingRequestByBarcode,
   fetchPendingMarketingRequests,
   markMarketingRequestPacked,
+  markMarketingRequestSeenByAdmin,
   markMarketingRequestsPackedBulk,
   markMarketingRequestShipped,
 } from "../../../lib/marketingDb";
@@ -65,9 +72,10 @@ function playBeep(ok: boolean) {
 }
 
 export default function MarketingFulfillPage() {
-  const [moduleTab, setModuleTab] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
+  const [moduleTab, setModuleTab] = useState<"ACTIVE" | "HISTORY" | "SHIPMENTS">("ACTIVE");
   const [requests, setRequests] = useState<MarketingRequest[]>([]);
   const [completedRequests, setCompletedRequests] = useState<MarketingRequest[]>([]);
+  const [allRequests, setAllRequests] = useState<MarketingRequest[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -80,31 +88,50 @@ export default function MarketingFulfillPage() {
   const [batchPacking, setBatchPacking] = useState(false);
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
   const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(chatSession);
+  const { totalUnseen, unseenByRequestId, refreshUnseen } = useMarketingUnseenOrders(chatSession);
 
   useEffect(() => {
     setChatSession(getMarketingSession());
   }, []);
 
-  const loadQueue = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const loadQueue = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
-      const [pending, completed] = await Promise.all([
+      const [pending, completed, all] = await Promise.all([
         fetchPendingMarketingRequests(),
         fetchCompletedMarketingRequests(),
+        fetchAllMarketingRequestsForRegistry(),
       ]);
       setRequests(pending);
       setCompletedRequests(completed);
+      setAllRequests(all);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load queue");
+      if (!silent) {
+        setError(e instanceof Error ? e.message : "Failed to load queue");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadQueue();
+    void loadQueue();
   }, [loadQueue]);
+
+  useAutoRefresh(() => loadQueue(true), 15000, true);
+
+  const handleViewRequest = useCallback(
+    (id: string) => {
+      setViewingRequestId(id);
+      if (chatSession?.role === "admin") {
+        void markMarketingRequestSeenByAdmin(chatSession, id).then(() => refreshUnseen());
+      }
+    },
+    [chatSession, refreshUnseen]
+  );
 
   useEffect(() => {
     setSelectedIds([]);
@@ -267,12 +294,12 @@ export default function MarketingFulfillPage() {
   const selectedPendingCount = requests.filter(
     (req) => selectedIds.includes(req.id) && req.status === "pending"
   ).length;
-  const viewingRequest = completedRequests.find((req) => req.id === viewingRequestId) ?? null;
+  const viewingRequest = allRequests.find((req) => req.id === viewingRequestId) ?? null;
 
   return (
     <div className={cx("min-h-screen bg-gray-100", selectedIds.length > 0 ? "pb-28" : "pb-12")}>
       <header className="bg-white border-b sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link href="/">
               <DashButton variant="ghost" size="sm" className="p-2 bg-gray-100">
@@ -286,6 +313,7 @@ export default function MarketingFulfillPage() {
           </div>
           <div className="flex items-center gap-3">
             <MarketingChatUnreadBadge count={totalUnread} />
+            <MarketingNewOrdersBadge count={totalUnseen} />
             <div className="text-sm font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
               {pendingCount} pending
             </div>
@@ -293,7 +321,12 @@ export default function MarketingFulfillPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      <main
+        className={cx(
+          "mx-auto px-4 py-6 space-y-6",
+          moduleTab === "SHIPMENTS" ? "max-w-7xl" : "max-w-5xl"
+        )}
+      >
         <ChatLoginBar session={chatSession} onSessionChange={setChatSession} />
 
         <div className="flex gap-2 border-b border-gray-200">
@@ -307,7 +340,14 @@ export default function MarketingFulfillPage() {
                 : "border-transparent text-gray-600 hover:text-gray-800"
             )}
           >
-            Active queue ({requests.length})
+            <span className="inline-flex items-center gap-1.5">
+              Active queue ({requests.length})
+              {totalUnseen > 0 && (
+                <span className="min-w-[1.125rem] h-[1.125rem] px-1 rounded-full bg-amber-500 text-white text-[10px] font-black flex items-center justify-center leading-none">
+                  {totalUnseen > 99 ? "99+" : totalUnseen}
+                </span>
+              )}
+            </span>
           </button>
           <button
             type="button"
@@ -322,6 +362,21 @@ export default function MarketingFulfillPage() {
             <span className="inline-flex items-center gap-1.5">
               <Archive className="w-4 h-4" />
               Completed history ({completedRequests.length})
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setModuleTab("SHIPMENTS")}
+            className={cx(
+              tabBtnBase,
+              moduleTab === "SHIPMENTS"
+                ? "border-violet-600 text-violet-700"
+                : "border-transparent text-gray-600 hover:text-gray-800"
+            )}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <List className="w-4 h-4" />
+              Shipment registry ({allRequests.length})
             </span>
           </button>
         </div>
@@ -373,6 +428,14 @@ export default function MarketingFulfillPage() {
           <CenteredPage className="min-h-[40vh]">
             <Loader2 className="animate-spin w-10 h-10 text-violet-600" />
           </CenteredPage>
+        ) : moduleTab === "SHIPMENTS" ? (
+          <MarketingShipmentsRegistry
+            requests={allRequests}
+            session={chatSession}
+            onViewRequest={handleViewRequest}
+            onUpdated={() => loadQueue(true)}
+            live
+          />
         ) : moduleTab === "HISTORY" ? (
           completedRequests.length === 0 ? (
             <SurfaceCard className="p-12 text-center">
@@ -430,7 +493,7 @@ export default function MarketingFulfillPage() {
                                 ? "bg-violet-50/60"
                                 : "hover:bg-gray-50"
                           )}
-                          onClick={() => setViewingRequestId(req.id)}
+                          onClick={() => handleViewRequest(req.id)}
                         >
                           <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                             <input
@@ -501,12 +564,14 @@ export default function MarketingFulfillPage() {
             <div className="grid gap-4 sm:grid-cols-2">
             {requests.map((req) => {
               const isSelected = selectedIds.includes(req.id);
+              const isUnseen = (unseenByRequestId[req.id] ?? 0) > 0;
               return (
               <SurfaceCard
                 key={req.id}
                 className={cx(
                   "p-5 flex flex-col relative",
-                  isSelected && "ring-2 ring-violet-400 border-violet-200"
+                  isSelected && "ring-2 ring-violet-400 border-violet-200",
+                  isUnseen && !isSelected && "ring-2 ring-amber-400 border-amber-200"
                 )}
               >
                 <div
@@ -528,7 +593,14 @@ export default function MarketingFulfillPage() {
                 </div>
                 <div className="flex items-start justify-between gap-2 mb-3 pl-8">
                   <div>
-                    <p className="font-black text-lg text-gray-900">{req.recipient_name}</p>
+                    <p className="font-black text-lg text-gray-900 flex items-center gap-2 flex-wrap">
+                      {req.recipient_name}
+                      {isUnseen && (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                          New
+                        </span>
+                      )}
+                    </p>
                     {req.request_purpose && (
                       <p className="text-xs font-bold uppercase tracking-wide text-violet-700 mt-1">
                         {req.request_purpose}
@@ -597,6 +669,14 @@ export default function MarketingFulfillPage() {
                 />
 
                 <div className="mt-auto flex flex-wrap gap-2 pt-2">
+                  <DashButton
+                    variant="subtle"
+                    size="md"
+                    className="flex-1 min-w-[120px]"
+                    onClick={() => handleViewRequest(req.id)}
+                  >
+                    View details
+                  </DashButton>
                   <Link href={`/marketing/labels/${req.id}`} className="flex-1 min-w-[120px]">
                     <DashButton variant="primary" size="md" className="w-full">
                       <Printer className="w-4 h-4" /> Print label

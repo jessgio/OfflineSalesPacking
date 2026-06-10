@@ -5,7 +5,11 @@ import Link from "next/link";
 import { Printer, X } from "lucide-react";
 import { DashButton, cx } from "../dashboard/primitives";
 import { RequestChat } from "./RequestChat";
-import type { MarketingRequest, MarketingSession } from "../../types/marketing";
+import {
+  courierNeedsActualShippingLabel,
+  type MarketingRequest,
+  type MarketingSession,
+} from "../../types/marketing";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -144,6 +148,24 @@ export function MarketingRequestDetailModal({
               <p className="text-xs text-gray-600">{formatWhen(request.shipped_at)}</p>
             </DetailRow>
           </div>
+
+          {courierNeedsActualShippingLabel(request.preferred_courier) && (
+            <DetailRow label="Actual shipping label">
+              {request.actual_shipping_label ? (
+                <>
+                  <p className="font-mono font-semibold">{request.actual_shipping_label}</p>
+                  {request.actual_shipping_label_at && (
+                    <p className="text-xs text-gray-600 mt-1">
+                      Recorded by {request.actual_shipping_label_by ?? "—"} ·{" "}
+                      {formatWhen(request.actual_shipping_label_at)}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-gray-500 italic">Not recorded yet — use the Shipment registry tab.</p>
+              )}
+            </DetailRow>
+          )}
 
           <RequestChat
             requestId={request.id}

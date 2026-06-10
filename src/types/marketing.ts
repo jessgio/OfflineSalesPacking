@@ -9,6 +9,15 @@ export const MARKETING_COURIER_OPTIONS = [
 
 export type MarketingCourier = (typeof MARKETING_COURIER_OPTIONS)[number];
 
+/** Couriers where fulfillment records the carrier label / tracking after dispatch. */
+export const MARKETING_COURIERS_WITH_SHIPPING_LABEL = ["Regular", "Kargo"] as const;
+
+export function courierNeedsActualShippingLabel(
+  courier: MarketingCourier | null | undefined
+): boolean {
+  return courier === "Regular" || courier === "Kargo";
+}
+
 export type MarketingUserRole = "marketing" | "admin";
 
 export interface MarketingChatParticipant {
@@ -71,6 +80,9 @@ export interface MarketingRequest {
   packed_at: string | null;
   shipped_by: string | null;
   shipped_at: string | null;
+  actual_shipping_label: string | null;
+  actual_shipping_label_at: string | null;
+  actual_shipping_label_by: string | null;
   created_at: string;
   items?: MarketingRequestItem[];
 }

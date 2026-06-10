@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Loader2,
@@ -17,6 +17,8 @@ import {
   FileSpreadsheet,
   Pencil,
   X,
+  List,
+  ChevronRight,
 } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../components/dashboard/primitives";
 import {
@@ -40,7 +42,10 @@ import {
   type MarketingImportPreviewRow,
 } from "../../lib/marketingImport";
 import { MarketingChatUnreadBadge } from "../../components/marketing/MarketingChatUnreadBadge";
+import { MarketingRequestDetailModal } from "../../components/marketing/MarketingRequestDetailModal";
+import { MarketingShipmentsRegistry } from "../../components/marketing/MarketingShipmentsRegistry";
 import { RequestChat } from "../../components/marketing/RequestChat";
+import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import { useMarketingChatUnread } from "../../hooks/useMarketingChatUnread";
 import {
   MARKETING_COURIER_OPTIONS,
@@ -109,6 +114,8 @@ export default function MarketingPage() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [portalTab, setPortalTab] = useState<"submit" | "shipments">("submit");
+  const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
 
   const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(session);
 
@@ -117,17 +124,31 @@ export default function MarketingPage() {
     setBooting(false);
   }, []);
 
+  const loadRequests = useCallback(
+    async (silent = false) => {
+      if (!session) return;
+      if (!silent) setLoadingRequests(true);
+      try {
+        const data = await fetchMarketingRequestsByUser(session.email);
+        setRequests(data);
+      } catch {
+        if (!silent) setRequests([]);
+      } finally {
+        if (!silent) setLoadingRequests(false);
+      }
+    },
+    [session]
+  );
+
   useEffect(() => {
     if (!session) return;
-    setLoadingRequests(true);
-    fetchMarketingRequestsByUser(session.email)
-      .then(setRequests)
-      .catch(() => setRequests([]))
-      .finally(() => setLoadingRequests(false));
+    void loadRequests();
     fetchMarketingRequestPurposes()
       .then(setSavedPurposes)
       .catch(() => setSavedPurposes([]));
-  }, [session]);
+  }, [session, loadRequests]);
+
+  useAutoRefresh(() => loadRequests(true), 15000, !!session);
 
   useEffect(() => {
     if (activeLookupIndex === null) {
@@ -261,8 +282,7 @@ export default function MarketingPage() {
     try {
       await deleteMarketingRequest(session, req.id);
       if (editingId === req.id) resetForm();
-      const updated = await fetchMarketingRequestsByUser(session.email);
-      setRequests(updated);
+      await loadRequests();
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : "Failed to delete request");
     } finally {
@@ -312,8 +332,7 @@ export default function MarketingPage() {
         setImportPreview([]);
         setImportPackages([]);
         setImportFileName("");
-        const updated = await fetchMarketingRequestsByUser(session.email);
-        setRequests(updated);
+        await loadRequests();
       }
       if (errors.length > 0) {
         setImportErrors(errors);
@@ -364,8 +383,7 @@ export default function MarketingPage() {
       }
 
       resetForm();
-      const updated = await fetchMarketingRequestsByUser(session.email);
-      setRequests(updated);
+      await loadRequests();
       fetchMarketingRequestPurposes()
         .then(setSavedPurposes)
         .catch(() => setSavedPurposes([]));
@@ -431,10 +449,18 @@ export default function MarketingPage() {
     );
   }
 
+  const shipmentRequests = requests.filter((req) => req.status !== "cancelled");
+  const viewingRequest = requests.find((req) => req.id === viewingRequestId) ?? null;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div
+          className={cx(
+            "mx-auto px-4 py-4 flex items-center justify-between",
+            portalTab === "shipments" ? "max-w-7xl" : "max-w-3xl"
+          )}
+        >
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-violet-600">Aeris Marketing</p>
             <h1 className="text-xl font-black text-gray-900">Request Goods</h1>
@@ -449,7 +475,47 @@ export default function MarketingPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+      <main
+        className={cx(
+          "mx-auto px-4 py-8 space-y-8",
+          portalTab === "shipments" ? "max-w-7xl" : "max-w-3xl"
+        )}
+      >
+        <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+          <DashButton
+            type="button"
+            onClick={() => setPortalTab("submit")}
+            className={cx(
+              "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition",
+              portalTab === "submit" ? "bg-white shadow-sm text-violet-700" : "text-gray-600 hover:text-gray-900"
+            )}
+          >
+            Submit requests
+          </DashButton>
+          <DashButton
+            type="button"
+            onClick={() => setPortalTab("shipments")}
+            className={cx(
+              "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition inline-flex items-center justify-center gap-2",
+              portalTab === "shipments" ? "bg-white shadow-sm text-violet-700" : "text-gray-600 hover:text-gray-900"
+            )}
+          >
+            <List className="w-4 h-4" />
+            My shipments ({shipmentRequests.length})
+          </DashButton>
+        </div>
+
+        {portalTab === "shipments" ? (
+          <MarketingShipmentsRegistry
+            requests={shipmentRequests}
+            session={session}
+            onViewRequest={setViewingRequestId}
+            onUpdated={() => loadRequests(true)}
+            variant="portal"
+            live
+          />
+        ) : (
+        <>
         <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
           <DashButton
             type="button"
@@ -799,7 +865,9 @@ export default function MarketingPage() {
 
         <section>
           <h2 className="text-lg font-bold text-gray-900 mb-4">Your requests</h2>
-          <p className="text-sm text-gray-600 mb-4">Pending requests can be edited or deleted before the offline team packs them.</p>
+          <p className="text-sm text-gray-600 mb-4">
+            Click any request to view full details. Pending requests can be edited or deleted before the offline team packs them.
+          </p>
           {loadingRequests ? (
             <div className="flex justify-center py-8">
               <Loader2 className="animate-spin w-8 h-8 text-gray-600" />
@@ -808,66 +876,89 @@ export default function MarketingPage() {
             <SurfaceCard className="p-8 text-center text-gray-600 text-sm">No requests yet.</SurfaceCard>
           ) : (
             <div className="space-y-3">
-              {requests.map((req) => (
+              {requests.map((req) => {
+                const isViewing = viewingRequestId === req.id;
+                const isHistorical = req.status !== "pending";
+
+                return (
                 <SurfaceCard
                   key={req.id}
-                  className={cx("p-4", editingId === req.id && "ring-2 ring-violet-400 border-violet-200")}
+                  className={cx(
+                    "p-4",
+                    editingId === req.id && "ring-2 ring-violet-400 border-violet-200",
+                    isViewing && "ring-2 ring-violet-300 border-violet-200"
+                  )}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-bold text-gray-900">{req.recipient_name}</p>
-                      {req.request_purpose && (
-                        <p className="text-xs font-semibold text-violet-700 mt-0.5">{req.request_purpose}</p>
-                      )}
-                      <p className="text-sm text-gray-600">
-                        {req.city}, {req.country} · {req.items?.length ?? 0} item(s)
-                      </p>
-                      {(req.due_date || req.preferred_courier) && (
-                        <p className="text-sm text-gray-700 mt-1">
-                          {req.preferred_courier && <span className="font-semibold">{req.preferred_courier}</span>}
-                          {req.preferred_courier && req.due_date && " · "}
-                          {req.due_date && (
-                            <span>Due {new Date(req.due_date + "T12:00:00").toLocaleDateString()}</span>
-                          )}
-                        </p>
-                      )}
-                      <p className="text-xs font-mono text-gray-600 mt-1">{req.barcode}</p>
-                    </div>
-                    <StatusBadge status={req.status} />
-                  </div>
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <p className="text-xs text-gray-600 flex items-center gap-1">
-                      {req.status === "shipped" ? <Truck className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                      {new Date(req.created_at).toLocaleString()}
-                    </p>
-                    {req.status === "pending" && (
-                      <div className="flex gap-2">
-                        <DashButton
-                          type="button"
-                          variant="subtle"
-                          size="sm"
-                          onClick={() => loadRequestForEdit(req)}
-                          disabled={deletingId === req.id}
-                        >
-                          <Pencil className="w-3.5 h-3.5" /> Edit
-                        </DashButton>
-                        <DashButton
-                          type="button"
-                          variant="danger"
-                          size="sm"
-                          onClick={() => handleDeleteRequest(req)}
-                          disabled={deletingId === req.id}
-                        >
-                          {deletingId === req.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-3.5 h-3.5" />
-                          )}
-                          Delete
-                        </DashButton>
-                      </div>
+                  <button
+                    type="button"
+                    onClick={() => setViewingRequestId(req.id)}
+                    className={cx(
+                      "w-full text-left rounded-lg -m-1 p-1 transition",
+                      isHistorical ? "cursor-pointer hover:bg-gray-50/80" : "cursor-pointer hover:bg-violet-50/50"
                     )}
-                  </div>
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-gray-900">{req.recipient_name}</p>
+                        {req.request_purpose && (
+                          <p className="text-xs font-semibold text-violet-700 mt-0.5">{req.request_purpose}</p>
+                        )}
+                        <p className="text-sm text-gray-600">
+                          {req.city}, {req.country} · {req.items?.length ?? 0} item(s)
+                        </p>
+                        {(req.due_date || req.preferred_courier) && (
+                          <p className="text-sm text-gray-700 mt-1">
+                            {req.preferred_courier && <span className="font-semibold">{req.preferred_courier}</span>}
+                            {req.preferred_courier && req.due_date && " · "}
+                            {req.due_date && (
+                              <span>Due {new Date(req.due_date + "T12:00:00").toLocaleDateString()}</span>
+                            )}
+                          </p>
+                        )}
+                        <p className="text-xs font-mono text-gray-600 mt-1">{req.barcode}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <StatusBadge status={req.status} />
+                        <ChevronRight className="w-4 h-4 text-gray-400" aria-hidden="true" />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <p className="text-xs text-gray-600 flex items-center gap-1">
+                        {req.status === "shipped" ? <Truck className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                        {new Date(req.created_at).toLocaleString()}
+                      </p>
+                      {isHistorical && (
+                        <span className="text-xs font-semibold text-violet-600">View details</span>
+                      )}
+                    </div>
+                  </button>
+                  {req.status === "pending" && (
+                    <div className="mt-3 flex justify-end gap-2">
+                      <DashButton
+                        type="button"
+                        variant="subtle"
+                        size="sm"
+                        onClick={() => loadRequestForEdit(req)}
+                        disabled={deletingId === req.id}
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </DashButton>
+                      <DashButton
+                        type="button"
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleDeleteRequest(req)}
+                        disabled={deletingId === req.id}
+                      >
+                        {deletingId === req.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                        Delete
+                      </DashButton>
+                    </div>
+                  )}
                   <RequestChat
                     requestId={req.id}
                     packageLabel={`${req.recipient_name} · ${req.barcode}`}
@@ -876,11 +967,24 @@ export default function MarketingPage() {
                     onRead={refreshUnread}
                   />
                 </SurfaceCard>
-              ))}
+              );
+              })}
             </div>
           )}
         </section>
+        </>
+        )}
       </main>
+
+      {viewingRequest && (
+        <MarketingRequestDetailModal
+          request={viewingRequest}
+          onClose={() => setViewingRequestId(null)}
+          session={session}
+          unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
+          onRead={refreshUnread}
+        />
+      )}
     </div>
   );
 }

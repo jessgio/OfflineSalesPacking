@@ -273,6 +273,49 @@ export async function fetchCompletedMarketingRequests(): Promise<MarketingReques
   }));
 }
 
+export async function fetchAllMarketingRequestsForRegistry(): Promise<MarketingRequest[]> {
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .select("*, marketing_request_items(*)")
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to load shipment registry"));
+
+  return (data ?? []).map((row) => ({
+    ...row,
+    items: row.marketing_request_items ?? [],
+  }));
+}
+
+export async function updateMarketingActualShippingLabel(
+  session: MarketingSession,
+  id: string,
+  label: string
+): Promise<MarketingRequest> {
+  if (session.role !== "admin") {
+    throw new Error("Only fulfillment admins can record shipping labels.");
+  }
+
+  const trimmed = label.trim();
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .update({
+      actual_shipping_label: trimmed || null,
+      actual_shipping_label_at: trimmed ? new Date().toISOString() : null,
+      actual_shipping_label_by: trimmed ? session.displayName : null,
+    })
+    .eq("id", id)
+    .select("*, marketing_request_items(*)")
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(getSupabaseErrorMessage(error, "Failed to save shipping label"));
+  }
+
+  return { ...data, items: data.marketing_request_items ?? [] };
+}
+
 export async function fetchMarketingRequestsByIds(ids: string[]): Promise<MarketingRequest[]> {
   if (ids.length === 0) return [];
 
@@ -401,4 +444,64 @@ export async function searchProducts(query: string): Promise<
 
   if (error) throw new Error(getSupabaseErrorMessage(error, "Product search failed"));
   return data ?? [];
+}
+
+export async function fetchUnseenMarketingOrderCounts(session: MarketingSession): Promise<{
+  total: number;
+  byRequestId: Record<string, number>;
+}> {
+  if (session.role !== "admin") {
+    return { total: 0, byRequestId: {} };
+  }
+
+  const { data: pending, error: pendingError } = await supabase
+    .from("marketing_requests")
+    .select("id")
+    .eq("status", "pending");
+
+  if (pendingError) {
+    throw new Error(getSupabaseErrorMessage(pendingError, "Failed to load pending requests"));
+  }
+
+  const { data: seen, error: seenError } = await supabase
+    .from("marketing_request_admin_views")
+    .select("request_id")
+    .eq("admin_email", session.email);
+
+  if (seenError) {
+    throw new Error(getSupabaseErrorMessage(seenError, "Failed to load admin views"));
+  }
+
+  const seenIds = new Set((seen ?? []).map((row) => row.request_id));
+  const byRequestId: Record<string, number> = {};
+  let total = 0;
+
+  for (const req of pending ?? []) {
+    if (!seenIds.has(req.id)) {
+      byRequestId[req.id] = 1;
+      total++;
+    }
+  }
+
+  return { total, byRequestId };
+}
+
+export async function markMarketingRequestSeenByAdmin(
+  session: MarketingSession,
+  requestId: string
+): Promise<void> {
+  if (session.role !== "admin") return;
+
+  const { error } = await supabase.from("marketing_request_admin_views").upsert(
+    {
+      request_id: requestId,
+      admin_email: session.email,
+      seen_at: new Date().toISOString(),
+    },
+    { onConflict: "request_id,admin_email" }
+  );
+
+  if (error) {
+    throw new Error(getSupabaseErrorMessage(error, "Failed to mark request as seen"));
+  }
 }
