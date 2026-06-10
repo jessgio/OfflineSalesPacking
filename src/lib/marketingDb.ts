@@ -7,6 +7,30 @@ import type {
   NewMarketingRequestInput,
 } from "../types/marketing";
 
+function normalizeRequestPurpose(value: string | undefined | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function rememberMarketingRequestPurpose(purpose: string | null): Promise<void> {
+  if (!purpose) return;
+  await supabase.from("marketing_request_purposes").upsert(
+    { label: purpose, last_used_at: new Date().toISOString() },
+    { onConflict: "label" }
+  );
+}
+
+export async function fetchMarketingRequestPurposes(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("marketing_request_purposes")
+    .select("label")
+    .order("last_used_at", { ascending: false })
+    .limit(50);
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to load saved purposes"));
+  return (data ?? []).map((row) => row.label);
+}
+
 export async function loginMarketingUser(
   email: string,
   pin: string
@@ -38,6 +62,7 @@ export async function createMarketingRequest(
   if (!input.items.length) throw new Error("Add at least one item to the request.");
 
   const barcode = generateMarketingBarcode();
+  const requestPurpose = normalizeRequestPurpose(input.request_purpose);
 
   const { data: request, error: requestError } = await supabase
     .from("marketing_requests")
@@ -57,6 +82,7 @@ export async function createMarketingRequest(
       postal_code: input.postal_code.trim(),
       country: input.country.trim() || "Singapore",
       notes: input.notes?.trim() || null,
+      request_purpose: requestPurpose,
     })
     .select("*")
     .single();
@@ -77,6 +103,8 @@ export async function createMarketingRequest(
     await supabase.from("marketing_requests").delete().eq("id", request.id);
     throw new Error(getSupabaseErrorMessage(itemsError, "Failed to save request items"));
   }
+
+  await rememberMarketingRequestPurpose(requestPurpose);
 
   return { ...request, items: itemRows };
 }
@@ -110,6 +138,8 @@ export async function updateMarketingRequest(
 
   await assertMarketingRequestEditable(session, id);
 
+  const requestPurpose = normalizeRequestPurpose(input.request_purpose);
+
   const { data: request, error: requestError } = await supabase
     .from("marketing_requests")
     .update({
@@ -124,6 +154,7 @@ export async function updateMarketingRequest(
       postal_code: input.postal_code.trim(),
       country: input.country.trim() || "Singapore",
       notes: input.notes?.trim() || null,
+      request_purpose: requestPurpose,
     })
     .eq("id", id)
     .eq("requested_by_email", session.email)
@@ -155,6 +186,8 @@ export async function updateMarketingRequest(
   if (itemsError) {
     throw new Error(getSupabaseErrorMessage(itemsError, "Failed to save request items"));
   }
+
+  await rememberMarketingRequestPurpose(requestPurpose);
 
   return { ...request, items: itemRows };
 }

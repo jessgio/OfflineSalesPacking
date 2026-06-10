@@ -426,6 +426,9 @@ export default function MarketingFulfillPage() {
                           </td>
                           <td className="px-4 py-3">
                             <p className="font-semibold text-gray-900">{req.recipient_name}</p>
+                            {req.request_purpose && (
+                              <p className="text-xs font-semibold text-violet-700 mt-0.5">{req.request_purpose}</p>
+                            )}
                             <p className="text-xs text-gray-600">
                               {req.city}, {req.country}
                             </p>
@@ -506,6 +509,11 @@ export default function MarketingFulfillPage() {
                 <div className="flex items-start justify-between gap-2 mb-3 pl-8">
                   <div>
                     <p className="font-black text-lg text-gray-900">{req.recipient_name}</p>
+                    {req.request_purpose && (
+                      <p className="text-xs font-bold uppercase tracking-wide text-violet-700 mt-1">
+                        {req.request_purpose}
+                      </p>
+                    )}
                     <p className="text-sm text-gray-600 mt-1">
                       {req.address_line1}
                       {req.address_line2 ? `, ${req.address_line2}` : ""}

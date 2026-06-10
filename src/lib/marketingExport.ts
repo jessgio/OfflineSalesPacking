@@ -23,6 +23,7 @@ const EXPORT_HEADERS = [
   "product_name",
   "product_barcode",
   "qty",
+  "request_purpose",
   "notes",
 ] as const;
 
@@ -70,6 +71,7 @@ export function buildMarketingHistoryExportCsv(requests: MarketingRequest[]): st
         item.product_name,
         item.product_barcode ?? "",
         String(item.qty),
+        req.request_purpose ?? "",
         req.notes ?? "",
       ].map(escapeCsvCell);
       rows.push(line.join(","));

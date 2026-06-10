@@ -66,6 +66,7 @@ export interface MarketingRequest {
   postal_code: string;
   country: string;
   notes: string | null;
+  request_purpose: string | null;
   packed_by: string | null;
   packed_at: string | null;
   shipped_by: string | null;
@@ -86,5 +87,6 @@ export interface NewMarketingRequestInput {
   postal_code: string;
   country: string;
   notes?: string;
+  request_purpose?: string;
   items: { product_barcode?: string; product_name: string; qty: number }[];
 }

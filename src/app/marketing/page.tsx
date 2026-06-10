@@ -28,6 +28,7 @@ import {
   createMarketingRequest,
   createMarketingRequestsBulk,
   deleteMarketingRequest,
+  fetchMarketingRequestPurposes,
   fetchMarketingRequestsByUser,
   loginMarketingUser,
   searchProducts,
@@ -86,9 +87,11 @@ export default function MarketingPage() {
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("Singapore");
   const [notes, setNotes] = useState("");
+  const [requestPurpose, setRequestPurpose] = useState("");
+  const [savedPurposes, setSavedPurposes] = useState<string[]>([]);
   const [items, setItems] = useState<DraftItem[]>([{ product_barcode: "", product_name: "", qty: 1 }]);
 
-  const [productQuery, setProductQuery] = useState("");
+  const [activeLookupIndex, setActiveLookupIndex] = useState<number | null>(null);
   const [productHits, setProductHits] = useState<{ barcode: string; clean_name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -117,18 +120,28 @@ export default function MarketingPage() {
       .then(setRequests)
       .catch(() => setRequests([]))
       .finally(() => setLoadingRequests(false));
+    fetchMarketingRequestPurposes()
+      .then(setSavedPurposes)
+      .catch(() => setSavedPurposes([]));
   }, [session]);
 
   useEffect(() => {
-    if (productQuery.length < 2) {
+    if (activeLookupIndex === null) {
       setProductHits([]);
       return;
     }
+
+    const query = items[activeLookupIndex]?.product_name.trim() ?? "";
+    if (query.length < 2) {
+      setProductHits([]);
+      return;
+    }
+
     const timer = setTimeout(() => {
-      searchProducts(productQuery).then(setProductHits).catch(() => setProductHits([]));
+      searchProducts(query).then(setProductHits).catch(() => setProductHits([]));
     }, 250);
     return () => clearTimeout(timer);
-  }, [productQuery]);
+  }, [activeLookupIndex, items]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,6 +171,14 @@ export default function MarketingPage() {
 
   const removeItem = (index: number) => {
     setItems((prev) => prev.filter((_, i) => i !== index));
+    setActiveLookupIndex((current) => {
+      if (current === null) return null;
+      if (current === index) {
+        setProductHits([]);
+        return null;
+      }
+      return current > index ? current - 1 : current;
+    });
   };
 
   const updateItem = (index: number, patch: Partial<DraftItem>) => {
@@ -166,8 +187,13 @@ export default function MarketingPage() {
 
   const pickProduct = (index: number, product: { barcode: string; clean_name: string }) => {
     updateItem(index, { product_barcode: product.barcode, product_name: product.clean_name });
-    setProductQuery("");
     setProductHits([]);
+    setActiveLookupIndex(null);
+  };
+
+  const handleProductNameChange = (index: number, value: string) => {
+    updateItem(index, { product_name: value });
+    setActiveLookupIndex(index);
   };
 
   const resetForm = () => {
@@ -183,8 +209,9 @@ export default function MarketingPage() {
     setPostalCode("");
     setCountry("Singapore");
     setNotes("");
+    setRequestPurpose("");
     setItems([{ product_barcode: "", product_name: "", qty: 1 }]);
-    setProductQuery("");
+    setActiveLookupIndex(null);
     setProductHits([]);
   };
 
@@ -205,6 +232,7 @@ export default function MarketingPage() {
     setPostalCode(req.postal_code);
     setCountry(req.country);
     setNotes(req.notes ?? "");
+    setRequestPurpose(req.request_purpose ?? "");
     setItems(
       (req.items ?? []).length > 0
         ? (req.items ?? []).map((item) => ({
@@ -319,6 +347,7 @@ export default function MarketingPage() {
         postal_code: postalCode,
         country,
         notes,
+        request_purpose: requestPurpose,
         items: validItems,
       };
 
@@ -333,6 +362,9 @@ export default function MarketingPage() {
       resetForm();
       const updated = await fetchMarketingRequestsByUser(session.email);
       setRequests(updated);
+      fetchMarketingRequestPurposes()
+        .then(setSavedPurposes)
+        .catch(() => setSavedPurposes([]));
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : "Failed to submit request");
     } finally {
@@ -561,6 +593,49 @@ export default function MarketingPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <section>
+              <h3 className="text-xs font-bold uppercase text-gray-700 mb-1">Event / purpose</h3>
+              <p className="text-xs text-gray-500 mb-3">Internal only — not printed on shipping labels.</p>
+              <div className="grid gap-3">
+                {savedPurposes.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Recent purposes</label>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) setRequestPurpose(e.target.value);
+                      }}
+                      className={fieldInput}
+                    >
+                      <option value="">Select a saved event or purpose…</option>
+                      {savedPurposes.map((purpose) => (
+                        <option key={purpose} value={purpose}>
+                          {purpose}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {savedPurposes.length > 0 ? "Or enter event / purpose" : "Event / purpose"}
+                  </label>
+                  <input
+                    value={requestPurpose}
+                    onChange={(e) => setRequestPurpose(e.target.value)}
+                    placeholder="e.g. TikTok creator seeding — Q2 launch"
+                    list="marketing-purpose-suggestions"
+                    className={fieldInput}
+                  />
+                  <datalist id="marketing-purpose-suggestions">
+                    {savedPurposes.map((purpose) => (
+                      <option key={purpose} value={purpose} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+            </section>
+
+            <section>
               <h3 className="text-xs font-bold uppercase text-gray-700 mb-3">Ship to</h3>
               <div className="grid gap-3">
                 <input required value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="Recipient name" className={fieldInput} />
@@ -629,46 +704,28 @@ export default function MarketingPage() {
                 {items.map((item, index) => (
                   <div key={index} className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                     <div className="flex gap-2 mb-2">
-                      <input
-                        value={item.product_name}
-                        onChange={(e) => updateItem(index, { product_name: e.target.value })}
-                        placeholder="Product name"
-                        required
-                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900"
-                      />
-                      <input
-                        type="number"
-                        min={1}
-                        value={item.qty}
-                        onChange={(e) => updateItem(index, { qty: Number(e.target.value) || 1 })}
-                        className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 text-center"
-                      />
-                      {items.length > 1 && (
-                        <DashButton type="button" variant="danger" size="sm" onClick={() => removeItem(index)}>
-                          <Trash2 className="w-4 h-4" />
-                        </DashButton>
-                      )}
-                    </div>
-                    <input
-                      value={item.product_barcode}
-                      onChange={(e) => updateItem(index, { product_barcode: e.target.value })}
-                      placeholder="Barcode (optional)"
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs bg-white text-gray-800"
-                    />
-                    {index === 0 && (
-                      <div className="mt-2 relative">
+                      <div className="flex-1 relative min-w-0">
                         <input
-                          value={productQuery}
-                          onChange={(e) => setProductQuery(e.target.value)}
-                          placeholder="Search catalog to autofill…"
-                          className="w-full border border-violet-200 rounded-lg px-3 py-2 text-sm bg-violet-50 text-gray-900"
+                          value={item.product_name}
+                          onChange={(e) => handleProductNameChange(index, e.target.value)}
+                          onFocus={() => setActiveLookupIndex(index)}
+                          onBlur={() => {
+                            window.setTimeout(() => {
+                              setActiveLookupIndex((current) => (current === index ? null : current));
+                            }, 150);
+                          }}
+                          placeholder="Product name — type to search SKU or enter freely"
+                          required
+                          autoComplete="off"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 focus:ring-2 focus:ring-violet-400 focus:border-violet-400 outline-none"
                         />
-                        {productHits.length > 0 && (
+                        {activeLookupIndex === index && productHits.length > 0 && (
                           <ul className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-auto">
                             {productHits.map((hit) => (
                               <li key={hit.barcode}>
                                 <button
                                   type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => pickProduct(index, hit)}
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50"
                                 >
@@ -680,7 +737,25 @@ export default function MarketingPage() {
                           </ul>
                         )}
                       </div>
-                    )}
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.qty}
+                        onChange={(e) => updateItem(index, { qty: Number(e.target.value) || 1 })}
+                        className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 text-center shrink-0"
+                      />
+                      {items.length > 1 && (
+                        <DashButton type="button" variant="danger" size="sm" onClick={() => removeItem(index)}>
+                          <Trash2 className="w-4 h-4" />
+                        </DashButton>
+                      )}
+                    </div>
+                    <input
+                      value={item.product_barcode}
+                      onChange={(e) => updateItem(index, { product_barcode: e.target.value })}
+                      placeholder="Barcode / SKU (optional — filled when you pick from search)"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs bg-white text-gray-800"
+                    />
                   </div>
                 ))}
               </div>
@@ -736,6 +811,9 @@ export default function MarketingPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-bold text-gray-900">{req.recipient_name}</p>
+                      {req.request_purpose && (
+                        <p className="text-xs font-semibold text-violet-700 mt-0.5">{req.request_purpose}</p>
+                      )}
                       <p className="text-sm text-gray-600">
                         {req.city}, {req.country} · {req.items?.length ?? 0} item(s)
                       </p>
