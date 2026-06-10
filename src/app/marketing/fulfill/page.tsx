@@ -13,6 +13,7 @@ import {
   PackageCheck,
   Printer,
   ScanLine,
+  Trash2,
   Truck,
   X,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import { getMarketingSession } from "../../../lib/marketingAuth";
 import type { MarketingSession } from "../../../types/marketing";
 import {
   deleteMarketingRequest,
+  deleteMarketingRequestsBulk,
   fetchAllMarketingRequestsForRegistry,
   fetchCompletedMarketingRequests,
   fetchMarketingRequestByBarcode,
@@ -87,6 +89,7 @@ export default function MarketingFulfillPage() {
   const scanRef = useRef<HTMLInputElement>(null);
   const [chatSession, setChatSession] = useState<MarketingSession | null>(null);
   const [batchPacking, setBatchPacking] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
   const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(chatSession);
@@ -267,6 +270,42 @@ export default function MarketingFulfillPage() {
   const handleExportSelected = () => {
     const selected = completedRequests.filter((req) => selectedIds.includes(req.id));
     downloadMarketingHistoryExport(selected);
+  };
+
+  const handleBatchDeleteSelected = async () => {
+    if (!chatSession || chatSession.role !== "admin") return;
+    if (selectedIds.length === 0) return;
+
+    const selected = completedRequests.filter((req) => selectedIds.includes(req.id));
+    if (selected.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Delete ${selected.length} completed shipment${selected.length === 1 ? "" : "s"}?\n\nThis removes them from the marketing portal and cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setBatchDeleting(true);
+    setError("");
+    try {
+      const deleted = await deleteMarketingRequestsBulk(
+        chatSession,
+        selected.map((req) => req.id)
+      );
+      if (viewingRequestId && selectedIds.includes(viewingRequestId)) {
+        setViewingRequestId(null);
+      }
+      setSelectedIds([]);
+      await loadQueue(true);
+      refreshUnseen();
+      setScanOk(true);
+      setScanMessage(
+        `Deleted ${deleted} completed shipment${deleted === 1 ? "" : "s"}.`
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete selected orders");
+    } finally {
+      setBatchDeleting(false);
+    }
   };
 
   const handleBatchPrintLabels = () => {
@@ -751,7 +790,9 @@ export default function MarketingFulfillPage() {
                   ? selectedPendingCount > 0
                     ? `${selectedPendingCount} pending · print labels or mark packed with manifest`
                     : "Batch print shipping labels"
-                  : "Export audit CSV with pack/ship details"}
+                  : chatSession?.role === "admin"
+                    ? "Export audit CSV or delete completed shipments"
+                    : "Export audit CSV with pack/ship details"}
               </p>
             </div>
           </div>
@@ -779,9 +820,26 @@ export default function MarketingFulfillPage() {
                 </DashButton>
               </>
             ) : (
-              <DashButton variant="primary" size="md" onClick={handleExportSelected}>
-                <Download className="w-4 h-4" /> Export CSV
-              </DashButton>
+              <>
+                <DashButton variant="primary" size="md" onClick={handleExportSelected}>
+                  <Download className="w-4 h-4" /> Export CSV
+                </DashButton>
+                {chatSession?.role === "admin" && (
+                  <DashButton
+                    variant="danger"
+                    size="md"
+                    onClick={handleBatchDeleteSelected}
+                    disabled={batchDeleting}
+                  >
+                    {batchDeleting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                    Delete
+                  </DashButton>
+                )}
+              </>
             )}
           </div>
         </div>

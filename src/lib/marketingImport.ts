@@ -17,6 +17,7 @@ export const MARKETING_IMPORT_HEADERS = [
   "postal_code",
   "country",
   "notes",
+  "request_purpose",
   "product_name",
   "product_barcode",
   "qty",
@@ -35,7 +36,8 @@ export const MARKETING_IMPORT_TEMPLATE_ROWS: string[][] = [
     "Central Region",
     "238858",
     "Singapore",
-    "Influencer PR kit",
+    "Gift wrap — fragile items",
+    "TikTok creator seeding — Q2 launch",
     "Lip Gloss Rose",
     "8801234567890",
     "2",
@@ -52,7 +54,8 @@ export const MARKETING_IMPORT_TEMPLATE_ROWS: string[][] = [
     "Central Region",
     "238858",
     "Singapore",
-    "Influencer PR kit",
+    "Gift wrap — fragile items",
+    "TikTok creator seeding — Q2 launch",
     "Face Serum 30ml",
     "8801234567891",
     "1",
@@ -70,6 +73,7 @@ export const MARKETING_IMPORT_TEMPLATE_ROWS: string[][] = [
     "018956",
     "Singapore",
     "",
+    "Retail pop-up restock",
     "Body Lotion",
     "",
     "1",
@@ -89,6 +93,14 @@ const HEADER_ALIASES: Record<string, string[]> = {
   postal_code: ["postal_code", "postalcode", "postcode", "zip", "zipcode"],
   country: ["country", "nation"],
   notes: ["notes", "note", "instructions", "comments"],
+  request_purpose: [
+    "request_purpose",
+    "requestpurpose",
+    "purpose",
+    "event",
+    "event_purpose",
+    "campaign",
+  ],
   product_name: ["product_name", "productname", "product", "item", "item_name"],
   product_barcode: ["product_barcode", "productbarcode", "barcode", "sku", "upc"],
   qty: ["qty", "quantity", "amount", "units"],
@@ -209,6 +221,7 @@ function packageKey(fields: {
   postal_code: string;
   country: string;
   notes: string;
+  request_purpose: string;
 }): string {
   return JSON.stringify(fields);
 }
@@ -219,6 +232,7 @@ export interface MarketingImportPreviewRow {
   itemCount: number;
   dueDate: string;
   courier: string;
+  purpose: string | null;
 }
 
 export interface MarketingImportParseResult {
@@ -312,6 +326,7 @@ export function parseMarketingImportCsv(text: string): MarketingImportParseResul
       postal_code: cell("postal_code"),
       country: cell("country") || "Singapore",
       notes: cell("notes"),
+      request_purpose: cell("request_purpose"),
     };
 
     if (!metaFields.recipient_name) {
@@ -351,6 +366,7 @@ export function parseMarketingImportCsv(text: string): MarketingImportParseResul
           postal_code: metaFields.postal_code,
           country: metaFields.country,
           notes: metaFields.notes || undefined,
+          request_purpose: metaFields.request_purpose || undefined,
         },
         items: [],
       });
@@ -384,6 +400,7 @@ export function parseMarketingImportCsv(text: string): MarketingImportParseResul
       itemCount: draft.items.length,
       dueDate: draft.meta.due_date,
       courier: draft.meta.preferred_courier,
+      purpose: draft.meta.request_purpose ?? null,
     });
   }
 

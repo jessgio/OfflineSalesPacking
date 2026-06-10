@@ -225,6 +225,32 @@ export async function deleteMarketingRequest(
   if (!data?.length) throw new Error("Request not found or cannot be deleted.");
 }
 
+export async function deleteMarketingRequestsBulk(
+  session: MarketingSession,
+  ids: string[]
+): Promise<number> {
+  if (session.role !== "admin") {
+    throw new Error("Only fulfillment admins can delete completed shipments.");
+  }
+  if (ids.length === 0) throw new Error("Select at least one order.");
+
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .delete()
+    .in("id", ids)
+    .eq("status", "shipped")
+    .select("id");
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete requests"));
+
+  const deleted = data?.length ?? 0;
+  if (deleted === 0) {
+    throw new Error("Only completed (shipped) orders can be deleted.");
+  }
+
+  return deleted;
+}
+
 export async function createMarketingRequestsBulk(
   session: MarketingSession,
   inputs: NewMarketingRequestInput[]

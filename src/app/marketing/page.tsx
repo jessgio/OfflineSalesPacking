@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Loader2,
@@ -19,6 +19,7 @@ import {
   X,
   List,
   ChevronRight,
+  LayoutDashboard,
 } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../components/dashboard/primitives";
 import {
@@ -42,6 +43,7 @@ import {
   type MarketingImportPreviewRow,
 } from "../../lib/marketingImport";
 import { MarketingChatUnreadBadge } from "../../components/marketing/MarketingChatUnreadBadge";
+import { MarketingDashboard } from "../../components/marketing/MarketingDashboard";
 import { MarketingRequestDetailModal } from "../../components/marketing/MarketingRequestDetailModal";
 import { MarketingShipmentsRegistry } from "../../components/marketing/MarketingShipmentsRegistry";
 import { RequestChat } from "../../components/marketing/RequestChat";
@@ -68,6 +70,71 @@ function StatusBadge({ status }: { status: string }) {
     <span className={cx("text-xs font-bold uppercase px-2 py-1 rounded-full", statusStyles[status] ?? statusStyles.pending)}>
       {status}
     </span>
+  );
+}
+
+type PurposeGroup = {
+  purposeKey: string;
+  label: string;
+  requests: MarketingRequest[];
+};
+
+function groupRequestsByPurpose(requests: MarketingRequest[]): PurposeGroup[] {
+  const groups = new Map<string, MarketingRequest[]>();
+
+  for (const req of requests) {
+    const key = req.request_purpose?.trim() || "";
+    const list = groups.get(key) ?? [];
+    list.push(req);
+    groups.set(key, list);
+  }
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => {
+      if (!a) return 1;
+      if (!b) return -1;
+      return a.localeCompare(b);
+    })
+    .map(([purposeKey, list]) => ({
+      purposeKey,
+      label: purposeKey || "No purpose assigned",
+      requests: list,
+    }));
+}
+
+function MarketingPurposeSummary({
+  groups,
+  totalLabel = "Total requests",
+}: {
+  groups: PurposeGroup[];
+  totalLabel?: string;
+}) {
+  const total = groups.reduce((count, group) => count + group.requests.length, 0);
+
+  return (
+    <SurfaceCard className="p-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="shrink-0">
+          <p className="text-3xl font-black text-gray-900 tabular-nums leading-none">{total}</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mt-1.5">{totalLabel}</p>
+        </div>
+        {groups.length > 0 && (
+          <div className="flex flex-wrap gap-2 sm:border-l sm:border-gray-200 sm:pl-4">
+            {groups.map((group) => (
+              <span
+                key={group.purposeKey || "__none__"}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-900 bg-violet-50 border border-violet-100 rounded-full px-3 py-1.5"
+              >
+                <span className="truncate max-w-[200px]" title={group.label}>
+                  {group.label}
+                </span>
+                <span className="font-black tabular-nums text-violet-700">{group.requests.length}</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </SurfaceCard>
   );
 }
 
@@ -114,7 +181,7 @@ export default function MarketingPage() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [portalTab, setPortalTab] = useState<"submit" | "shipments">("submit");
+  const [portalTab, setPortalTab] = useState<"dashboard" | "submit" | "shipments">("dashboard");
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
 
   const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(session);
@@ -394,6 +461,18 @@ export default function MarketingPage() {
     }
   };
 
+  const shipmentRequests = useMemo(
+    () => requests.filter((req) => req.status !== "cancelled"),
+    [requests]
+  );
+  const requestsByPurpose = useMemo(() => groupRequestsByPurpose(requests), [requests]);
+  const shipmentsByPurpose = useMemo(() => groupRequestsByPurpose(shipmentRequests), [shipmentRequests]);
+  const viewingRequest = useMemo(
+    () => requests.find((req) => req.id === viewingRequestId) ?? null,
+    [requests, viewingRequestId]
+  );
+  const isWidePortal = portalTab === "shipments" || portalTab === "dashboard";
+
   if (booting) {
     return (
       <CenteredPage>
@@ -449,16 +528,13 @@ export default function MarketingPage() {
     );
   }
 
-  const shipmentRequests = requests.filter((req) => req.status !== "cancelled");
-  const viewingRequest = requests.find((req) => req.id === viewingRequestId) ?? null;
-
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b sticky top-0 z-10">
         <div
           className={cx(
             "mx-auto px-4 py-4 flex items-center justify-between",
-            portalTab === "shipments" ? "max-w-7xl" : "max-w-3xl"
+            portalTab === "shipments" ? "max-w-7xl" : isWidePortal ? "max-w-6xl" : "max-w-3xl"
           )}
         >
           <div>
@@ -478,42 +554,64 @@ export default function MarketingPage() {
       <main
         className={cx(
           "mx-auto px-4 py-8 space-y-8",
-          portalTab === "shipments" ? "max-w-7xl" : "max-w-3xl"
+          portalTab === "shipments" ? "max-w-7xl" : isWidePortal ? "max-w-6xl" : "max-w-3xl"
         )}
       >
         <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
           <DashButton
             type="button"
+            onClick={() => setPortalTab("dashboard")}
+            className={cx(
+              "flex-1 rounded-lg px-3 py-2.5 text-sm font-bold transition inline-flex items-center justify-center gap-1.5",
+              portalTab === "dashboard" ? "bg-white shadow-sm text-violet-700" : "text-gray-600 hover:text-gray-900"
+            )}
+          >
+            <LayoutDashboard className="w-4 h-4 shrink-0" />
+            Dashboard
+          </DashButton>
+          <DashButton
+            type="button"
             onClick={() => setPortalTab("submit")}
             className={cx(
-              "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition",
+              "flex-1 rounded-lg px-3 py-2.5 text-sm font-bold transition",
               portalTab === "submit" ? "bg-white shadow-sm text-violet-700" : "text-gray-600 hover:text-gray-900"
             )}
           >
-            Submit requests
+            Submit
           </DashButton>
           <DashButton
             type="button"
             onClick={() => setPortalTab("shipments")}
             className={cx(
-              "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition inline-flex items-center justify-center gap-2",
+              "flex-1 rounded-lg px-3 py-2.5 text-sm font-bold transition inline-flex items-center justify-center gap-1.5",
               portalTab === "shipments" ? "bg-white shadow-sm text-violet-700" : "text-gray-600 hover:text-gray-900"
             )}
           >
-            <List className="w-4 h-4" />
-            My shipments ({shipmentRequests.length})
+            <List className="w-4 h-4 shrink-0" />
+            Shipments ({shipmentRequests.length})
           </DashButton>
         </div>
 
-        {portalTab === "shipments" ? (
-          <MarketingShipmentsRegistry
-            requests={shipmentRequests}
-            session={session}
+        {portalTab === "dashboard" ? (
+          <MarketingDashboard
+            requests={requests}
+            loading={loadingRequests}
             onViewRequest={setViewingRequestId}
-            onUpdated={() => loadRequests(true)}
-            variant="portal"
-            live
           />
+        ) : portalTab === "shipments" ? (
+          <>
+            {shipmentRequests.length > 0 && (
+              <MarketingPurposeSummary groups={shipmentsByPurpose} totalLabel="Total shipments" />
+            )}
+            <MarketingShipmentsRegistry
+              requests={shipmentRequests}
+              session={session}
+              onViewRequest={setViewingRequestId}
+              onUpdated={() => loadRequests(true)}
+              variant="portal"
+              live
+            />
+          </>
         ) : (
         <>
         <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
@@ -549,7 +647,10 @@ export default function MarketingPage() {
           <SurfaceCard className="p-6">
             <h2 className="text-lg font-bold text-gray-900 mb-1">Import multiple packages</h2>
             <p className="text-sm text-gray-600 mb-4">
-              Upload a CSV with one row per item. Rows sharing the same <span className="font-mono font-semibold">package_id</span> become one shipment with multiple products.
+              Upload a CSV with one row per item. Rows sharing the same{" "}
+              <span className="font-mono font-semibold">package_id</span> become one shipment with multiple
+              products. Use <span className="font-mono font-semibold">request_purpose</span> for internal
+              event/campaign tracking (not printed on labels).
             </p>
 
             <div className="flex flex-wrap gap-2 mb-6">
@@ -599,6 +700,7 @@ export default function MarketingPage() {
                       <tr>
                         <th className="px-4 py-3">Package ID</th>
                         <th className="px-4 py-3">Recipient</th>
+                        <th className="px-4 py-3">Purpose</th>
                         <th className="px-4 py-3">Courier</th>
                         <th className="px-4 py-3">Due</th>
                         <th className="px-4 py-3 text-right">Items</th>
@@ -609,6 +711,9 @@ export default function MarketingPage() {
                         <tr key={row.packageId} className="border-t border-gray-100">
                           <td className="px-4 py-3 font-mono font-semibold text-gray-900">{row.packageId}</td>
                           <td className="px-4 py-3 text-gray-800">{row.recipientName}</td>
+                          <td className="px-4 py-3 text-violet-800 text-xs font-semibold max-w-[160px] truncate">
+                            {row.purpose ?? "—"}
+                          </td>
                           <td className="px-4 py-3 text-gray-700">{row.courier}</td>
                           <td className="px-4 py-3 text-gray-700">
                             {new Date(row.dueDate + "T12:00:00").toLocaleDateString()}
@@ -875,8 +980,19 @@ export default function MarketingPage() {
           ) : requests.length === 0 ? (
             <SurfaceCard className="p-8 text-center text-gray-600 text-sm">No requests yet.</SurfaceCard>
           ) : (
-            <div className="space-y-3">
-              {requests.map((req) => {
+            <>
+              <MarketingPurposeSummary groups={requestsByPurpose} />
+              <div className="space-y-8">
+                {requestsByPurpose.map((group) => (
+                  <div key={group.purposeKey || "__none__"}>
+                    <div className="flex items-baseline justify-between gap-3 mb-3 px-1">
+                      <h3 className="text-sm font-black text-violet-900">{group.label}</h3>
+                      <span className="text-xs font-semibold text-gray-500 tabular-nums shrink-0">
+                        {group.requests.length} shipment{group.requests.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {group.requests.map((req) => {
                 const isViewing = viewingRequestId === req.id;
                 const isHistorical = req.status !== "pending";
 
@@ -900,9 +1016,6 @@ export default function MarketingPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="font-bold text-gray-900">{req.recipient_name}</p>
-                        {req.request_purpose && (
-                          <p className="text-xs font-semibold text-violet-700 mt-0.5">{req.request_purpose}</p>
-                        )}
                         <p className="text-sm text-gray-600">
                           {req.city}, {req.country} · {req.items?.length ?? 0} item(s)
                         </p>
@@ -968,8 +1081,12 @@ export default function MarketingPage() {
                   />
                 </SurfaceCard>
               );
-              })}
-            </div>
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </section>
         </>
