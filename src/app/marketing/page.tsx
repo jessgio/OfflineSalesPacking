@@ -39,7 +39,9 @@ import {
   parseMarketingImportCsv,
   type MarketingImportPreviewRow,
 } from "../../lib/marketingImport";
+import { MarketingChatUnreadBadge } from "../../components/marketing/MarketingChatUnreadBadge";
 import { RequestChat } from "../../components/marketing/RequestChat";
+import { useMarketingChatUnread } from "../../hooks/useMarketingChatUnread";
 import {
   MARKETING_COURIER_OPTIONS,
   type MarketingCourier,
@@ -107,6 +109,8 @@ export default function MarketingPage() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(session);
 
   useEffect(() => {
     setSession(getMarketingSession());
@@ -436,6 +440,7 @@ export default function MarketingPage() {
             <h1 className="text-xl font-black text-gray-900">Request Goods</h1>
           </div>
           <div className="flex items-center gap-3">
+            <MarketingChatUnreadBadge count={totalUnread} />
             <span className="text-sm text-gray-600 hidden sm:block">{session.displayName}</span>
             <DashButton variant="ghost" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4" /> Log out
@@ -867,6 +872,8 @@ export default function MarketingPage() {
                     requestId={req.id}
                     packageLabel={`${req.recipient_name} · ${req.barcode}`}
                     session={session}
+                    unreadCount={unreadByRequestId[req.id] ?? 0}
+                    onRead={refreshUnread}
                   />
                 </SurfaceCard>
               ))}

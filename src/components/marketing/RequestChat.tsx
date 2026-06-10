@@ -6,16 +6,17 @@ import { DashButton, cx, fieldInput } from "../dashboard/primitives";
 import {
   fetchChatParticipants,
   fetchRequestMessages,
+  markRequestChatRead,
   postRequestMessage,
 } from "../../lib/marketingChatDb";
-import { parseMentionedEmails, renderMessageWithMentions } from "../../lib/marketingMentions";
+import { renderMessageWithMentions } from "../../lib/marketingMentions";
 import type {
   MarketingChatParticipant,
   MarketingRequestMessage,
   MarketingSession,
 } from "../../types/marketing";
 
-async function notifyMentions(messageId: string): Promise<void> {
+async function notifyChatMessage(messageId: string): Promise<void> {
   await fetch("/api/marketing-chat/notify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -28,11 +29,15 @@ export function RequestChat({
   packageLabel,
   session,
   defaultOpen = false,
+  unreadCount = 0,
+  onRead,
 }: {
   requestId: string;
   packageLabel: string;
   session: MarketingSession | null;
   defaultOpen?: boolean;
+  unreadCount?: number;
+  onRead?: () => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [messages, setMessages] = useState<MarketingRequestMessage[]>([]);
@@ -50,10 +55,14 @@ export function RequestChat({
     try {
       const data = await fetchRequestMessages(requestId);
       setMessages(data);
+      if (session) {
+        await markRequestChatRead(session, requestId);
+        onRead?.();
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load chat");
     }
-  }, [requestId]);
+  }, [requestId, session, onRead]);
 
   useEffect(() => {
     fetchChatParticipants().then(setParticipants).catch(() => setParticipants([]));
@@ -133,11 +142,7 @@ export function RequestChat({
       setDraft("");
       setMentionQuery(null);
       await loadMessages();
-
-      const mentioned = parseMentionedEmails(message.body, participants, session.email);
-      if (mentioned.length > 0) {
-        await notifyMentions(message.id);
-      }
+      await notifyChatMessage(message.id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to send");
     } finally {
@@ -183,11 +188,15 @@ export function RequestChat({
       >
         <MessageSquare className="w-4 h-4" />
         Discussion
-        {messages.length > 0 && (
+        {!open && unreadCount > 0 ? (
+          <span className="text-xs font-bold bg-red-600 text-white px-2 py-0.5 rounded-full">
+            {unreadCount} new
+          </span>
+        ) : messages.length > 0 ? (
           <span className="text-xs font-bold bg-violet-100 text-violet-800 px-2 py-0.5 rounded-full">
             {messages.length}
           </span>
-        )}
+        ) : null}
       </button>
 
       {open && (

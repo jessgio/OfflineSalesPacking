@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Archive,
+  ChevronRight,
   Download,
   Loader2,
   Package,
@@ -16,7 +17,10 @@ import {
 } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../../components/dashboard/primitives";
 import { ChatLoginBar } from "../../../components/marketing/ChatLoginBar";
+import { MarketingChatUnreadBadge } from "../../../components/marketing/MarketingChatUnreadBadge";
+import { MarketingRequestDetailModal } from "../../../components/marketing/MarketingRequestDetailModal";
 import { RequestChat } from "../../../components/marketing/RequestChat";
+import { useMarketingChatUnread } from "../../../hooks/useMarketingChatUnread";
 import { getMarketingSession } from "../../../lib/marketingAuth";
 import type { MarketingSession } from "../../../types/marketing";
 import {
@@ -74,6 +78,8 @@ export default function MarketingFulfillPage() {
   const scanRef = useRef<HTMLInputElement>(null);
   const [chatSession, setChatSession] = useState<MarketingSession | null>(null);
   const [batchPacking, setBatchPacking] = useState(false);
+  const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
+  const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(chatSession);
 
   useEffect(() => {
     setChatSession(getMarketingSession());
@@ -102,6 +108,7 @@ export default function MarketingFulfillPage() {
 
   useEffect(() => {
     setSelectedIds([]);
+    setViewingRequestId(null);
   }, [moduleTab]);
 
   useEffect(() => {
@@ -260,6 +267,7 @@ export default function MarketingFulfillPage() {
   const selectedPendingCount = requests.filter(
     (req) => selectedIds.includes(req.id) && req.status === "pending"
   ).length;
+  const viewingRequest = completedRequests.find((req) => req.id === viewingRequestId) ?? null;
 
   return (
     <div className={cx("min-h-screen bg-gray-100", selectedIds.length > 0 ? "pb-28" : "pb-12")}>
@@ -276,8 +284,11 @@ export default function MarketingFulfillPage() {
               <h1 className="text-xl font-black text-gray-900">Marketing Fulfillment</h1>
             </div>
           </div>
-          <div className="text-sm font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
-            {pendingCount} pending
+          <div className="flex items-center gap-3">
+            <MarketingChatUnreadBadge count={totalUnread} />
+            <div className="text-sm font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
+              {pendingCount} pending
+            </div>
           </div>
         </div>
       </header>
@@ -376,7 +387,7 @@ export default function MarketingFulfillPage() {
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/80">
                 <h2 className="font-bold text-gray-900">Shipped orders</h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  Select rows to export packing and shipping audit data (who processed, when, and what was sent).
+                  Click a row to view order details, or select rows to export audit CSV.
                 </p>
               </div>
               <div className="overflow-x-auto">
@@ -401,19 +412,25 @@ export default function MarketingFulfillPage() {
                       <th className="px-4 py-3">Packed</th>
                       <th className="px-4 py-3">Shipped</th>
                       <th className="px-4 py-3 text-right">Items</th>
+                      <th className="px-4 py-3 w-10" aria-hidden="true" />
                     </tr>
                   </thead>
                   <tbody>
                     {completedRequests.map((req) => {
                       const isSelected = selectedIds.includes(req.id);
+                      const isViewing = viewingRequestId === req.id;
                       return (
                         <tr
                           key={req.id}
                           className={cx(
                             "border-t border-gray-100 cursor-pointer",
-                            isSelected ? "bg-violet-50/60" : "hover:bg-gray-50"
+                            isViewing
+                              ? "bg-violet-100/70"
+                              : isSelected
+                                ? "bg-violet-50/60"
+                                : "hover:bg-gray-50"
                           )}
-                          onClick={() => toggleSelection(req.id)}
+                          onClick={() => setViewingRequestId(req.id)}
                         >
                           <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                             <input
@@ -448,6 +465,9 @@ export default function MarketingFulfillPage() {
                           </td>
                           <td className="px-4 py-3 text-right font-bold text-gray-900">
                             {req.items?.length ?? 0}
+                          </td>
+                          <td className="px-4 py-3 text-gray-400">
+                            <ChevronRight className="w-4 h-4" />
                           </td>
                         </tr>
                       );
@@ -572,6 +592,8 @@ export default function MarketingFulfillPage() {
                   requestId={req.id}
                   packageLabel={`${req.recipient_name} · ${req.barcode}`}
                   session={chatSession}
+                  unreadCount={unreadByRequestId[req.id] ?? 0}
+                  onRead={refreshUnread}
                 />
 
                 <div className="mt-auto flex flex-wrap gap-2 pt-2">
@@ -653,6 +675,16 @@ export default function MarketingFulfillPage() {
             )}
           </div>
         </div>
+      )}
+
+      {viewingRequest && (
+        <MarketingRequestDetailModal
+          request={viewingRequest}
+          onClose={() => setViewingRequestId(null)}
+          session={chatSession}
+          unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
+          onRead={refreshUnread}
+        />
       )}
     </div>
   );

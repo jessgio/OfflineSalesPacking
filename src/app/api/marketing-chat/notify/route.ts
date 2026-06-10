@@ -6,6 +6,10 @@ import type { MarketingChatParticipant } from "../../../../types/marketing";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 export async function POST(request: Request) {
   if (!process.env.RESEND_API_KEY) {
     return NextResponse.json({ error: "Email service not configured" }, { status: 503 });
@@ -29,7 +33,7 @@ export async function POST(request: Request) {
 
     const { data: pkg, error: pkgError } = await supabase
       .from("marketing_requests")
-      .select("barcode, recipient_name, status, requested_by_name")
+      .select("barcode, recipient_name, status, requested_by_name, requested_by_email")
       .eq("id", message.request_id)
       .maybeSingle();
 
@@ -48,22 +52,37 @@ export async function POST(request: Request) {
       role: u.role,
       handle: mentionHandleFromEmail(u.email),
     }));
+    const roleByEmail = new Map(
+      participants.map((p) => [normalizeEmail(p.email), p.role])
+    );
 
-    const mentionedEmails = parseMentionedEmails(message.body, participants, message.author_email);
-    if (mentionedEmails.length === 0) {
+    const authorEmail = normalizeEmail(message.author_email);
+    const requesterEmail = normalizeEmail(pkg.requested_by_email);
+    const mentionedEmails = parseMentionedEmails(message.body, participants, message.author_email).map(
+      normalizeEmail
+    );
+
+    const recipients = new Set<string>();
+
+    if (authorEmail !== requesterEmail) {
+      recipients.add(requesterEmail);
+    }
+
+    for (const email of mentionedEmails) {
+      if (email !== authorEmail) {
+        recipients.add(email);
+      }
+    }
+
+    if (recipients.size === 0) {
       return NextResponse.json({ success: true, emailed: 0 });
     }
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const threadUrl =
-      message.author_role === "admin"
-        ? `${siteUrl}/marketing/fulfill`
-        : `${siteUrl}/marketing`;
+    const marketingUrl = `${siteUrl}/marketing`;
+    const fulfillUrl = `${siteUrl}/marketing/fulfill`;
 
-    const subject = `[Aeris] ${message.author_name} mentioned you — ${pkg.recipient_name} (${pkg.barcode})`;
-    const text = [
-      `${message.author_name} mentioned you in a package discussion:`,
-      "",
+    const packageBlock = [
       `Package barcode: ${pkg.barcode}`,
       `Recipient: ${pkg.recipient_name}`,
       `Status: ${pkg.status}`,
@@ -71,22 +90,45 @@ export async function POST(request: Request) {
       "",
       "Message:",
       `"${message.body}"`,
-      "",
-      `Open the dashboard to reply: ${threadUrl}`,
     ].join("\n");
 
-    await resend.emails.send({
-      from: "Aeris Fulfillment <offlinesalesreports@aerisbeaute.com>",
-      to: mentionedEmails,
-      subject,
-      text,
-    });
+    let emailed = 0;
 
-    return NextResponse.json({ success: true, emailed: mentionedEmails.length });
+    for (const to of recipients) {
+      const isRequester = to === requesterEmail;
+      const wasMentioned = mentionedEmails.includes(to);
+      const openUrl = roleByEmail.get(to) === "admin" ? fulfillUrl : marketingUrl;
+
+      let subject: string;
+      let intro: string;
+
+      if (isRequester && wasMentioned) {
+        subject = `[Aeris] ${message.author_name} replied on your request — ${pkg.recipient_name} (${pkg.barcode})`;
+        intro = `${message.author_name} mentioned you in the discussion for your marketing request:`;
+      } else if (isRequester) {
+        subject = `[Aeris] New message on your request — ${pkg.recipient_name} (${pkg.barcode})`;
+        intro = `${message.author_name} posted in the discussion for your marketing request:`;
+      } else {
+        subject = `[Aeris] ${message.author_name} mentioned you — ${pkg.recipient_name} (${pkg.barcode})`;
+        intro = `${message.author_name} mentioned you in a package discussion:`;
+      }
+
+      const text = [intro, "", packageBlock, "", `Open the dashboard to reply: ${openUrl}`].join("\n");
+
+      await resend.emails.send({
+        from: "Aeris Fulfillment <offlinesalesreports@aerisbeaute.com>",
+        to: [to],
+        subject,
+        text,
+      });
+      emailed += 1;
+    }
+
+    return NextResponse.json({ success: true, emailed });
   } catch (err: unknown) {
     console.error("marketing-chat notify error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to send mention emails" },
+      { error: err instanceof Error ? err.message : "Failed to send notification emails" },
       { status: 500 }
     );
   }
