@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Printer, X } from "lucide-react";
+import { Loader2, Printer, Trash2, X } from "lucide-react";
 import { DashButton, cx } from "../dashboard/primitives";
 import { RequestChat } from "./RequestChat";
 import {
@@ -38,12 +38,16 @@ export function MarketingRequestDetailModal({
   session,
   unreadCount = 0,
   onRead,
+  onDelete,
+  deleting = false,
 }: {
   request: MarketingRequest;
   onClose: () => void;
   session: MarketingSession | null;
   unreadCount?: number;
   onRead?: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 }) {
   return (
     <div
@@ -175,11 +179,30 @@ export function MarketingRequestDetailModal({
             onRead={onRead}
           />
 
-          <Link href={`/marketing/labels/${request.id}`} className="block">
-            <DashButton variant="primary" size="md" className="w-full">
-              <Printer className="w-4 h-4" /> Reprint label
-            </DashButton>
-          </Link>
+          <div className="flex flex-col gap-2">
+            <Link href={`/marketing/labels/${request.id}`} className="block">
+              <DashButton variant="primary" size="md" className="w-full">
+                <Printer className="w-4 h-4" /> Reprint label
+              </DashButton>
+            </Link>
+            {onDelete && (
+              <DashButton
+                type="button"
+                variant="danger"
+                size="md"
+                className="w-full"
+                disabled={deleting}
+                onClick={onDelete}
+              >
+                {deleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Delete request
+              </DashButton>
+            )}
+          </div>
         </div>
       </div>
     </div>

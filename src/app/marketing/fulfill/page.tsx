@@ -13,6 +13,7 @@ import {
   PackageCheck,
   Printer,
   ScanLine,
+  Trash2,
   Truck,
   X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrder
 import { getMarketingSession } from "../../../lib/marketingAuth";
 import type { MarketingSession } from "../../../types/marketing";
 import {
+  deleteMarketingRequest,
   fetchAllMarketingRequestsForRegistry,
   fetchCompletedMarketingRequests,
   fetchMarketingRequestByBarcode,
@@ -86,6 +88,7 @@ export default function MarketingFulfillPage() {
   const scanRef = useRef<HTMLInputElement>(null);
   const [chatSession, setChatSession] = useState<MarketingSession | null>(null);
   const [batchPacking, setBatchPacking] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
   const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(chatSession);
   const { totalUnseen, unseenByRequestId, refreshUnseen } = useMarketingUnseenOrders(chatSession);
@@ -132,6 +135,29 @@ export default function MarketingFulfillPage() {
     },
     [chatSession, refreshUnseen]
   );
+
+  const handleDeleteRequest = async (req: MarketingRequest) => {
+    if (!chatSession || chatSession.role !== "admin") return;
+
+    const confirmed = window.confirm(
+      `Delete request for ${req.recipient_name} (${req.barcode})?\n\nThis removes it from the marketing portal and cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(req.id);
+    setError("");
+    try {
+      await deleteMarketingRequest(chatSession, req.id);
+      if (viewingRequestId === req.id) setViewingRequestId(null);
+      setSelectedIds((prev) => prev.filter((id) => id !== req.id));
+      await loadQueue(true);
+      refreshUnseen();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete request");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     setSelectedIds([]);
@@ -692,6 +718,22 @@ export default function MarketingFulfillPage() {
                       <Truck className="w-4 h-4" /> Shipped
                     </DashButton>
                   )}
+                  {chatSession?.role === "admin" && (
+                    <DashButton
+                      variant="danger"
+                      size="md"
+                      className="flex-1 min-w-[120px]"
+                      disabled={deletingId === req.id}
+                      onClick={() => handleDeleteRequest(req)}
+                    >
+                      {deletingId === req.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                      Delete
+                    </DashButton>
+                  )}
                 </div>
               </SurfaceCard>
             );
@@ -764,6 +806,12 @@ export default function MarketingFulfillPage() {
           session={chatSession}
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
+          onDelete={
+            chatSession?.role === "admin"
+              ? () => handleDeleteRequest(viewingRequest)
+              : undefined
+          }
+          deleting={deletingId === viewingRequest.id}
         />
       )}
     </div>

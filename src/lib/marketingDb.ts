@@ -196,16 +196,30 @@ export async function deleteMarketingRequest(
   session: MarketingSession,
   id: string
 ): Promise<void> {
+  if (session.role === "admin") {
+    const { data, error } = await supabase
+      .from("marketing_requests")
+      .delete()
+      .eq("id", id)
+      .select("id");
+
+    if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete request"));
+    if (!data?.length) throw new Error("Request not found.");
+    return;
+  }
+
   await assertMarketingRequestEditable(session, id);
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("marketing_requests")
     .delete()
     .eq("id", id)
     .eq("requested_by_email", session.email)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .select("id");
 
   if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete request"));
+  if (!data?.length) throw new Error("Request not found or cannot be deleted.");
 }
 
 export async function createMarketingRequestsBulk(
