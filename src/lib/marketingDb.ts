@@ -288,14 +288,56 @@ export async function fetchAllMarketingRequestsForRegistry(): Promise<MarketingR
   }));
 }
 
+async function assertCanEditRegistryField(
+  session: MarketingSession,
+  id: string
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .select("id, status, requested_by_email")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to verify request"));
+  if (!data) throw new Error("Request not found.");
+  if (data.status === "cancelled") {
+    throw new Error("Cancelled requests cannot be edited.");
+  }
+  if (session.role !== "admin" && data.requested_by_email !== session.email) {
+    throw new Error("You can only edit your own requests.");
+  }
+}
+
+export async function updateMarketingRequestPurpose(
+  session: MarketingSession,
+  id: string,
+  purpose: string
+): Promise<MarketingRequest> {
+  await assertCanEditRegistryField(session, id);
+
+  const requestPurpose = normalizeRequestPurpose(purpose);
+  const { data, error } = await supabase
+    .from("marketing_requests")
+    .update({ request_purpose: requestPurpose })
+    .eq("id", id)
+    .select("*, marketing_request_items(*)")
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(getSupabaseErrorMessage(error, "Failed to save purpose"));
+  }
+
+  await rememberMarketingRequestPurpose(requestPurpose);
+
+  return { ...data, items: data.marketing_request_items ?? [] };
+}
+
 export async function updateMarketingActualShippingLabel(
   session: MarketingSession,
   id: string,
   label: string
 ): Promise<MarketingRequest> {
-  if (session.role !== "admin") {
-    throw new Error("Only fulfillment admins can record shipping labels.");
-  }
+  await assertCanEditRegistryField(session, id);
 
   const trimmed = label.trim();
   const { data, error } = await supabase

@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Check, ChevronRight, Loader2 } from "lucide-react";
 import { DashButton, SurfaceCard, cx, fieldInput } from "../dashboard/primitives";
-import { updateMarketingActualShippingLabel } from "../../lib/marketingDb";
+import {
+  updateMarketingActualShippingLabel,
+  updateMarketingRequestPurpose,
+} from "../../lib/marketingDb";
 import {
   courierNeedsActualShippingLabel,
   type MarketingRequest,
@@ -15,6 +18,8 @@ const statusStyles: Record<string, string> = {
   packed: "bg-blue-100 text-blue-800",
   shipped: "bg-green-100 text-green-800",
 };
+
+type RegistryField = "purpose" | "label";
 
 function formatWhen(value: string | null | undefined): string {
   if (!value) return "—";
@@ -29,6 +34,81 @@ function formatWhen(value: string | null | undefined): string {
 function formatDue(value: string | null | undefined): string {
   if (!value) return "—";
   return new Date(value + "T12:00:00").toLocaleDateString();
+}
+
+function cellErrorKey(requestId: string, field: RegistryField): string {
+  return `${requestId}:${field}`;
+}
+
+function RegistryInlineField({
+  draft,
+  savedValue,
+  placeholder,
+  canEdit,
+  isSaving,
+  isDirty,
+  error,
+  mono = false,
+  savedMeta,
+  onDraftChange,
+  onSave,
+}: {
+  draft: string;
+  savedValue: string;
+  placeholder: string;
+  canEdit: boolean;
+  isSaving: boolean;
+  isDirty: boolean;
+  error?: string;
+  mono?: boolean;
+  savedMeta?: ReactNode;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  if (!canEdit) {
+    if (!savedValue) {
+      return <span className="text-xs text-gray-400">—</span>;
+    }
+    return (
+      <div>
+        <p
+          className={cx(
+            "text-xs text-gray-900",
+            mono ? "font-mono font-semibold" : "font-medium text-violet-800"
+          )}
+        >
+          {savedValue}
+        </p>
+        {savedMeta}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
+      <div className="flex gap-1">
+        <input
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          placeholder={placeholder}
+          className={cx(fieldInput, "text-xs py-1.5 flex-1 min-w-0", mono && "font-mono")}
+        />
+        <DashButton
+          type="button"
+          variant={isDirty ? "primary" : "subtle"}
+          size="sm"
+          className="shrink-0 px-2"
+          disabled={!isDirty || isSaving}
+          onClick={onSave}
+          title="Save"
+        >
+          {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+        </DashButton>
+      </div>
+      {savedMeta && !isDirty && savedMeta}
+      {error && <p className="text-[10px] text-red-600">{error}</p>}
+    </div>
+  );
 }
 
 export function MarketingShipmentsRegistry({
@@ -46,41 +126,74 @@ export function MarketingShipmentsRegistry({
   variant?: "fulfill" | "portal";
   live?: boolean;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<Record<string, string>>({});
+  const [purposeDrafts, setPurposeDrafts] = useState<Record<string, string>>({});
+  const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
+  const [savingCell, setSavingCell] = useState<{ id: string; field: RegistryField } | null>(null);
+  const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const next: Record<string, string> = {};
+    const nextPurpose: Record<string, string> = {};
+    const nextLabel: Record<string, string> = {};
     for (const req of requests) {
-      next[req.id] = req.actual_shipping_label ?? "";
+      nextPurpose[req.id] = req.request_purpose ?? "";
+      nextLabel[req.id] = req.actual_shipping_label ?? "";
     }
-    setDrafts(next);
+    setPurposeDrafts(nextPurpose);
+    setLabelDrafts(nextLabel);
   }, [requests]);
 
   const isAdmin = session?.role === "admin";
+  const isPortal = variant === "portal";
+
+  const canEditPurpose = (req: MarketingRequest) =>
+    !!session && (isAdmin || req.requested_by_email === session.email);
+
+  const canEditLabel = (req: MarketingRequest) =>
+    !!session &&
+    courierNeedsActualShippingLabel(req.preferred_courier) &&
+    (isAdmin || req.requested_by_email === session.email);
+
+  const handleSavePurpose = async (req: MarketingRequest) => {
+    if (!session || !canEditPurpose(req)) return;
+    const draft = purposeDrafts[req.id] ?? "";
+    if (draft === (req.request_purpose ?? "")) return;
+
+    const field: RegistryField = "purpose";
+    setSavingCell({ id: req.id, field });
+    setCellErrors((prev) => ({ ...prev, [cellErrorKey(req.id, field)]: "" }));
+    try {
+      await updateMarketingRequestPurpose(session, req.id, draft);
+      onUpdated();
+    } catch (e: unknown) {
+      setCellErrors((prev) => ({
+        ...prev,
+        [cellErrorKey(req.id, field)]: e instanceof Error ? e.message : "Failed to save",
+      }));
+    } finally {
+      setSavingCell(null);
+    }
+  };
 
   const handleSaveLabel = async (req: MarketingRequest) => {
-    if (!session || !isAdmin) return;
-    const draft = drafts[req.id] ?? "";
+    if (!session || !canEditLabel(req)) return;
+    const draft = labelDrafts[req.id] ?? "";
     if (draft === (req.actual_shipping_label ?? "")) return;
 
-    setSavingId(req.id);
-    setRowError((prev) => ({ ...prev, [req.id]: "" }));
+    const field: RegistryField = "label";
+    setSavingCell({ id: req.id, field });
+    setCellErrors((prev) => ({ ...prev, [cellErrorKey(req.id, field)]: "" }));
     try {
       await updateMarketingActualShippingLabel(session, req.id, draft);
       onUpdated();
     } catch (e: unknown) {
-      setRowError((prev) => ({
+      setCellErrors((prev) => ({
         ...prev,
-        [req.id]: e instanceof Error ? e.message : "Failed to save",
+        [cellErrorKey(req.id, field)]: e instanceof Error ? e.message : "Failed to save",
       }));
     } finally {
-      setSavingId(null);
+      setSavingCell(null);
     }
   };
-
-  const isPortal = variant === "portal";
 
   if (requests.length === 0) {
     return (
@@ -103,16 +216,17 @@ export function MarketingShipmentsRegistry({
             <p className="text-sm text-gray-600 mt-1">
               {isPortal ? (
                 <>
-                  Track status and carrier labels for your requests.{" "}
-                  <span className="font-semibold">Regular</span> and{" "}
-                  <span className="font-semibold">Kargo</span> orders show the tracking reference once
-                  dispatch is recorded.
+                  Track status and carrier labels for your requests. Edit{" "}
+                  <span className="font-semibold">Purpose</span> or{" "}
+                  <span className="font-semibold">Actual shipping label</span> inline — changes save
+                  when you click the checkmark.
                 </>
               ) : (
                 <>
-                  All ongoing and completed orders. For <span className="font-semibold">Regular</span> and{" "}
-                  <span className="font-semibold">Kargo</span> shipments, record the carrier tracking or
-                  label reference after dispatch.
+                  All ongoing and completed orders. Edit <span className="font-semibold">Purpose</span> or
+                  record <span className="font-semibold">Actual shipping label</span> for{" "}
+                  <span className="font-semibold">Regular</span> and{" "}
+                  <span className="font-semibold">Kargo</span> shipments inline.
                 </>
               )}
             </p>
@@ -126,13 +240,13 @@ export function MarketingShipmentsRegistry({
         </div>
         {!isPortal && !isAdmin && (
           <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
-            Sign in as fulfillment admin above to enter or edit actual shipping labels.
+            Sign in as fulfillment admin above to edit purpose and shipping labels for any order.
           </p>
         )}
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[960px]">
+        <table className="w-full text-sm min-w-[1040px]">
           <thead className="bg-gray-50 text-left text-[10px] font-bold uppercase tracking-wide text-gray-600">
             <tr>
               <th className="px-3 py-3">Status</th>
@@ -140,7 +254,7 @@ export function MarketingShipmentsRegistry({
               <th className="px-3 py-3">Recipient</th>
               <th className="px-3 py-3">Courier</th>
               <th className="px-3 py-3">Due</th>
-              <th className="px-3 py-3">Purpose</th>
+              <th className="px-3 py-3 min-w-[180px]">Purpose</th>
               <th className="px-3 py-3 text-right">Items</th>
               <th className="px-3 py-3">Shipped</th>
               <th className="px-3 py-3 min-w-[220px]">Actual shipping label</th>
@@ -150,9 +264,13 @@ export function MarketingShipmentsRegistry({
           <tbody>
             {requests.map((req) => {
               const needsLabel = courierNeedsActualShippingLabel(req.preferred_courier);
-              const draft = drafts[req.id] ?? "";
-              const isDirty = draft !== (req.actual_shipping_label ?? "");
-              const isSaving = savingId === req.id;
+              const purposeDraft = purposeDrafts[req.id] ?? "";
+              const labelDraft = labelDrafts[req.id] ?? "";
+              const purposeDirty = purposeDraft !== (req.request_purpose ?? "");
+              const labelDirty = labelDraft !== (req.actual_shipping_label ?? "");
+              const savingPurpose =
+                savingCell?.id === req.id && savingCell.field === "purpose";
+              const savingLabel = savingCell?.id === req.id && savingCell.field === "label";
 
               return (
                 <tr
@@ -200,10 +318,20 @@ export function MarketingShipmentsRegistry({
                     {req.preferred_courier ?? "—"}
                   </td>
                   <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatDue(req.due_date)}</td>
-                  <td className="px-3 py-3 max-w-[140px]">
-                    <p className="text-xs text-violet-800 font-medium truncate" title={req.request_purpose ?? undefined}>
-                      {req.request_purpose ?? "—"}
-                    </p>
+                  <td className="px-3 py-3">
+                    <RegistryInlineField
+                      draft={purposeDraft}
+                      savedValue={req.request_purpose ?? ""}
+                      placeholder="Event / purpose"
+                      canEdit={canEditPurpose(req)}
+                      isSaving={savingPurpose}
+                      isDirty={purposeDirty}
+                      error={cellErrors[cellErrorKey(req.id, "purpose")]}
+                      onDraftChange={(value) =>
+                        setPurposeDrafts((prev) => ({ ...prev, [req.id]: value }))
+                      }
+                      onSave={() => handleSavePurpose(req)}
+                    />
                   </td>
                   <td className="px-3 py-3 text-right font-bold text-gray-900 tabular-nums">
                     {req.items?.length ?? 0}
@@ -219,56 +347,31 @@ export function MarketingShipmentsRegistry({
                       "—"
                     )}
                   </td>
-                  <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-3 py-3">
                     {!needsLabel ? (
                       <span className="text-xs text-gray-500 italic">N/A ({req.preferred_courier ?? "—"})</span>
-                    ) : isAdmin ? (
-                      <div className="space-y-1">
-                        <div className="flex gap-1">
-                          <input
-                            value={draft}
-                            onChange={(e) =>
-                              setDrafts((prev) => ({ ...prev, [req.id]: e.target.value }))
-                            }
-                            placeholder="Tracking / label ref"
-                            className={`${fieldInput} text-xs font-mono py-1.5 flex-1 min-w-0`}
-                          />
-                          <DashButton
-                            type="button"
-                            variant={isDirty ? "primary" : "subtle"}
-                            size="sm"
-                            className="shrink-0 px-2"
-                            disabled={!isDirty || isSaving}
-                            onClick={() => handleSaveLabel(req)}
-                            title="Save shipping label"
-                          >
-                            {isSaving ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5" />
-                            )}
-                          </DashButton>
-                        </div>
-                        {req.actual_shipping_label_at && !isDirty && (
-                          <p className="text-[10px] text-gray-500">
-                            {req.actual_shipping_label_by} · {formatWhen(req.actual_shipping_label_at)}
-                          </p>
-                        )}
-                        {rowError[req.id] && (
-                          <p className="text-[10px] text-red-600">{rowError[req.id]}</p>
-                        )}
-                      </div>
-                    ) : req.actual_shipping_label ? (
-                      <div>
-                        <p className="font-mono text-xs font-semibold text-gray-900">{req.actual_shipping_label}</p>
-                        {req.actual_shipping_label_at && (
-                          <p className="text-[10px] text-gray-500 mt-0.5">
-                            {req.actual_shipping_label_by} · {formatWhen(req.actual_shipping_label_at)}
-                          </p>
-                        )}
-                      </div>
                     ) : (
-                      <span className="text-xs text-gray-400">—</span>
+                      <RegistryInlineField
+                        draft={labelDraft}
+                        savedValue={req.actual_shipping_label ?? ""}
+                        placeholder="Tracking / label ref"
+                        canEdit={canEditLabel(req)}
+                        isSaving={savingLabel}
+                        isDirty={labelDirty}
+                        mono
+                        error={cellErrors[cellErrorKey(req.id, "label")]}
+                        savedMeta={
+                          req.actual_shipping_label_at ? (
+                            <p className="text-[10px] text-gray-500">
+                              {req.actual_shipping_label_by} · {formatWhen(req.actual_shipping_label_at)}
+                            </p>
+                          ) : undefined
+                        }
+                        onDraftChange={(value) =>
+                          setLabelDrafts((prev) => ({ ...prev, [req.id]: value }))
+                        }
+                        onSave={() => handleSaveLabel(req)}
+                      />
                     )}
                   </td>
                   <td className="px-3 py-3">
