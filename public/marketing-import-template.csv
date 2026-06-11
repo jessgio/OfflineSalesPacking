@@ -1,4 +1,4 @@
 package_id,recipient_name,recipient_phone,due_date,preferred_courier,address_line1,address_line2,city,state,postal_code,country,notes,request_purpose,product_name,product_barcode,qty
-PKG001,Jane Doe,+6591234567,2026-06-15,Regular,123 Orchard Road,#04-01,Singapore,Central Region,238858,Singapore,Gift wrap — fragile items,TikTok creator seeding — Q2 launch,Lip Gloss Rose,8801234567890,2
-PKG001,Jane Doe,+6591234567,2026-06-15,Regular,123 Orchard Road,#04-01,Singapore,Central Region,238858,Singapore,Gift wrap — fragile items,TikTok creator seeding — Q2 launch,Face Serum 30ml,8801234567891,1
-PKG002,John Smith,+6598765432,2026-06-16,Same Day,45 Marina Boulevard,,Singapore,Central Region,018956,Singapore,,Retail pop-up restock,Body Lotion,,1
+PKG001,Jane Doe,+6281234567890,2026-06-15,Regular,Jalan Sudirman Kav. 52-53,,Jakarta,DKI Jakarta,12190,Indonesia,Gift wrap — fragile items,TikTok creator seeding — Q2 launch,Lip Gloss Rose,8801234567890,2
+PKG001,Jane Doe,+6281234567890,2026-06-15,Regular,Jalan Sudirman Kav. 52-53,,Jakarta,DKI Jakarta,12190,Indonesia,Gift wrap — fragile items,TikTok creator seeding — Q2 launch,Face Serum 30ml,8801234567891,1
+PKG002,John Smith,+6289876543210,2026-06-16,Same Day,Jalan Thamrin No. 1,,Jakarta,DKI Jakarta,10310,Indonesia,,Retail pop-up restock,Body Lotion,,1

@@ -133,7 +133,7 @@ export default function MarketingPage() {
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [postalCode, setPostalCode] = useState("");
-  const [country, setCountry] = useState("Singapore");
+  const [country, setCountry] = useState("Indonesia");
   const [notes, setNotes] = useState("");
   const [requestPurpose, setRequestPurpose] = useState("");
   const [savedPurposes, setSavedPurposes] = useState<string[]>([]);
@@ -303,7 +303,7 @@ export default function MarketingPage() {
     setCity("");
     setState("");
     setPostalCode("");
-    setCountry("Singapore");
+    setCountry("Indonesia");
     setNotes("");
     setRequestPurpose("");
     setItems([{ product_barcode: "", product_name: "", qty: 1 }]);
