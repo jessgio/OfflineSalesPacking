@@ -9,6 +9,7 @@ import {
 } from "../../lib/marketingDb";
 import {
   courierNeedsActualShippingLabel,
+  MARKETING_COURIERS_WITH_SHIPPING_LABEL,
   type MarketingRequest,
   type MarketingSession,
 } from "../../types/marketing";
@@ -233,8 +234,13 @@ export function MarketingShipmentsRegistry({
                 <>
                   All ongoing and completed orders. Edit <span className="font-semibold">Purpose</span> or
                   record <span className="font-semibold">Actual shipping label</span> for{" "}
-                  <span className="font-semibold">Regular</span> and{" "}
-                  <span className="font-semibold">Kargo</span> shipments inline.
+                  {MARKETING_COURIERS_WITH_SHIPPING_LABEL.map((courier, i) => (
+                    <span key={courier}>
+                      {i > 0 && (i === MARKETING_COURIERS_WITH_SHIPPING_LABEL.length - 1 ? " and " : ", ")}
+                      <span className="font-semibold">{courier}</span>
+                    </span>
+                  ))}{" "}
+                  shipments inline.
                 </>
               )}
             </p>

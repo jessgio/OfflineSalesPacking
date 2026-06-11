@@ -298,7 +298,7 @@ export function parseMarketingImportCsv(text: string): MarketingImportParseResul
     const courier = normalizeCourier(cell("preferred_courier"));
     if (!courier) {
       errors.push(
-        `Row ${rowNum}: invalid preferred_courier "${cell("preferred_courier")}" (use Instant, Same Day, Regular, or Kargo).`
+        `Row ${rowNum}: invalid preferred_courier "${cell("preferred_courier")}" (use ${MARKETING_COURIER_OPTIONS.join(", ")}).`
       );
       continue;
     }

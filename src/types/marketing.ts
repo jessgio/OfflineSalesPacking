@@ -5,17 +5,29 @@ export const MARKETING_COURIER_OPTIONS = [
   "Same Day",
   "Regular",
   "Kargo",
+  "Rayspeed",
+  "UPS",
+  "DHL",
+  "FedEx",
 ] as const;
 
 export type MarketingCourier = (typeof MARKETING_COURIER_OPTIONS)[number];
 
 /** Couriers where fulfillment records the carrier label / tracking after dispatch. */
-export const MARKETING_COURIERS_WITH_SHIPPING_LABEL = ["Regular", "Kargo"] as const;
+export const MARKETING_COURIERS_WITH_SHIPPING_LABEL = [
+  "Regular",
+  "Kargo",
+  "Rayspeed",
+  "UPS",
+  "DHL",
+  "FedEx",
+] as const satisfies readonly MarketingCourier[];
 
 export function courierNeedsActualShippingLabel(
   courier: MarketingCourier | null | undefined
 ): boolean {
-  return courier === "Regular" || courier === "Kargo";
+  if (!courier) return false;
+  return (MARKETING_COURIERS_WITH_SHIPPING_LABEL as readonly string[]).includes(courier);
 }
 
 export type MarketingUserRole = "requester" | "fulfillment" | "admin";
