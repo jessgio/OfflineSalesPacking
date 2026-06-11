@@ -855,7 +855,9 @@ export default function MarketingPage() {
                   onSelect={setRequestPurpose}
                 />
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Event / purpose</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {savedPurposes.length > 0 ? "Or enter event / purpose" : "Event / purpose"}
+                  </label>
                   <input
                     value={requestPurpose}
                     onChange={(e) => setRequestPurpose(e.target.value)}

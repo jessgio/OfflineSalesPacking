@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Tag, Trash2 } from "lucide-react";
-import { DashButton, SurfaceCard, cx } from "../dashboard/primitives";
+import { Loader2, X } from "lucide-react";
+import { cx } from "../dashboard/primitives";
 import { deleteMarketingRequestPurpose } from "../../lib/marketingDb";
 import type { MarketingSession } from "../../types/marketing";
 
@@ -22,11 +22,14 @@ export function MarketingSavedPurposesManager({
   const [deletingLabel, setDeletingLabel] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  if (!session) {
+  if (!session || purposes.length === 0) {
     return null;
   }
 
-  const handleDelete = async (label: string) => {
+  const handleDelete = async (label: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+
     const confirmed = window.confirm(
       `Remove "${label}" from saved purposes and events?\n\nExisting shipments keep their purpose; this only removes the saved suggestion.`
     );
@@ -45,71 +48,60 @@ export function MarketingSavedPurposesManager({
   };
 
   return (
-    <SurfaceCard className={cx("p-4 border-violet-100 bg-violet-50/30", className)}>
-      <div className="flex items-start gap-2 mb-3">
-        <Tag className="w-4 h-4 text-violet-600 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-bold text-gray-900">Saved events &amp; purposes</p>
-          <p className="text-xs text-gray-600 mt-0.5">
-            {onSelect
-              ? "Click a tag to use it on this request. Use Remove to delete typos or mistakes from the saved list."
-              : "Remove typos or mistakes from the saved list. Existing shipments are not changed."}
-          </p>
-        </div>
-      </div>
-
-      {purposes.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">
-          No saved purposes yet. They appear here after you submit a request with an event or purpose.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {purposes.map((purpose) => {
-            const isDeleting = deletingLabel === purpose;
-            return (
-              <li
-                key={purpose}
-                className="flex items-center gap-2 rounded-lg border border-violet-100 bg-white px-3 py-2"
-              >
-                {onSelect ? (
-                  <button
-                    type="button"
-                    onClick={() => onSelect(purpose)}
-                    className="flex-1 min-w-0 text-left text-sm font-semibold text-violet-900 hover:text-violet-700 truncate"
-                    title={purpose}
-                  >
-                    {purpose}
-                  </button>
-                ) : (
-                  <span className="flex-1 min-w-0 text-sm font-semibold text-gray-900 truncate" title={purpose}>
-                    {purpose}
-                  </span>
-                )}
-                <DashButton
+    <div className={cx("space-y-1", className)}>
+      <label className="block text-xs font-semibold text-gray-700">Recent purposes</label>
+      <div
+        className="rounded-lg border border-gray-300 bg-white shadow-sm overflow-hidden max-h-56 overflow-y-auto"
+        role="listbox"
+        aria-label="Recent purposes"
+      >
+        {purposes.map((purpose) => {
+          const isDeleting = deletingLabel === purpose;
+          return (
+            <div
+              key={purpose}
+              role="option"
+              className="flex items-center gap-2 border-b border-gray-100 last:border-b-0 hover:bg-violet-50"
+            >
+              {onSelect ? (
+                <button
                   type="button"
-                  variant="danger"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={isDeleting}
-                  onClick={() => handleDelete(purpose)}
-                  title={`Remove ${purpose}`}
+                  onClick={() => onSelect(purpose)}
+                  className="flex-1 min-w-0 text-left px-3 py-2.5 text-sm text-gray-900 hover:text-violet-800 truncate"
+                  title={purpose}
                 >
-                  {isDeleting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <>
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Remove
-                    </>
-                  )}
-                </DashButton>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
-    </SurfaceCard>
+                  {purpose}
+                </button>
+              ) : (
+                <span
+                  className="flex-1 min-w-0 px-3 py-2.5 text-sm text-gray-900 truncate"
+                  title={purpose}
+                >
+                  {purpose}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={(event) => handleDelete(purpose, event)}
+                disabled={isDeleting}
+                className="shrink-0 p-2 mr-1 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
+                title={`Remove ${purpose}`}
+                aria-label={`Remove ${purpose}`}
+              >
+                {isDeleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <X className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-gray-500">
+        Click a row to use it. Click <span className="font-semibold">×</span> to remove typos from the saved list.
+      </p>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </div>
   );
 }
