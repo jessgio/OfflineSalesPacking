@@ -45,6 +45,7 @@ import {
   parseMarketingImportCsv,
   type MarketingImportPreviewRow,
 } from "../../lib/marketingImport";
+import { MarketingAddressFields } from "../../components/marketing/MarketingAddressFields";
 import { MarketingChatUnreadBadge } from "../../components/marketing/MarketingChatUnreadBadge";
 import { MarketingDashboard } from "../../components/marketing/MarketingDashboard";
 import { MarketingRequestDetailModal } from "../../components/marketing/MarketingRequestDetailModal";
@@ -427,6 +428,10 @@ export default function MarketingPage() {
     try {
       const validItems = items.filter((item) => item.product_name.trim() && item.qty > 0);
       if (!validItems.length) throw new Error("Add at least one product with a name and quantity.");
+      if (!postalCode.trim()) throw new Error("Postal / ZIP code is required.");
+      if (!city.trim() || !state.trim()) {
+        throw new Error("Enter a valid postal code so city and region can be filled in.");
+      }
 
       const payload = {
         recipient_name: recipientName,
@@ -873,16 +878,20 @@ export default function MarketingPage() {
                   placeholder="Recipient phone number"
                   className={fieldInput}
                 />
+                <MarketingAddressFields
+                  key={editingId ?? "new"}
+                  country={country}
+                  postalCode={postalCode}
+                  city={city}
+                  state={state}
+                  onCountryChange={setCountry}
+                  onPostalCodeChange={setPostalCode}
+                  onCityChange={setCity}
+                  onStateChange={setState}
+                  fieldInput={fieldInput}
+                />
                 <input required value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} placeholder="Address line 1" className={fieldInput} />
                 <input value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} placeholder="Address line 2 (optional)" className={fieldInput} />
-                <div className="grid grid-cols-2 gap-3">
-                  <input required value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" className={fieldInput} />
-                  <input required value={state} onChange={(e) => setState(e.target.value)} placeholder="State / region" className={fieldInput} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <input required value={postalCode} onChange={(e) => setPostalCode(e.target.value)} placeholder="Postal code" className={fieldInput} />
-                  <input required value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country" className={fieldInput} />
-                </div>
               </div>
             </section>
 
