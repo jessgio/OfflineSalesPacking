@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { isLarkConfigured, sendLarkText } from "../../../../lib/larkNotify";
+import { isLarkConfigured, sendLarkMarketingChat } from "../../../../lib/larkNotify";
 import { supabase } from "../../../../lib/supabaseClient";
 import { mentionHandleFromEmail, parseMentionedEmails } from "../../../../lib/marketingMentions";
 import { canFulfill, normalizeUserRole } from "../../../../lib/marketingRoles";
@@ -14,6 +14,15 @@ function hasEmailNotifications(): boolean {
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function isValidEmail(email: string): boolean {
+  return email.includes("@") && email.length > 3;
+}
+
+function participantLabel(email: string, participants: MarketingChatParticipant[]): string {
+  const participant = participants.find((p) => normalizeEmail(p.email) === email);
+  return participant ? `${participant.display_name} (@${participant.handle})` : email;
 }
 
 export async function POST(request: Request) {
@@ -71,24 +80,24 @@ export async function POST(request: Request) {
 
     const recipients = new Set<string>();
 
-    if (authorEmail !== requesterEmail) {
+    if (authorEmail !== requesterEmail && isValidEmail(requesterEmail)) {
       recipients.add(requesterEmail);
     }
 
     for (const email of mentionedEmails) {
-      if (email !== authorEmail) {
+      if (email !== authorEmail && isValidEmail(email)) {
         recipients.add(email);
       }
     }
 
-    if (recipients.size === 0) {
+    const shouldNotify = recipients.size > 0 || mentionedEmails.length > 0;
+    if (!shouldNotify) {
       return NextResponse.json({ success: true, emailed: 0, larkSent: false });
     }
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     const marketingUrl = `${siteUrl}/marketing`;
     const fulfillUrl = `${siteUrl}/marketing/fulfill`;
-
     const purposeLine = `Event / purpose: ${pkg.request_purpose?.trim() || "—"}`;
 
     const packageBlock = [
@@ -102,12 +111,43 @@ export async function POST(request: Request) {
       `"${message.body}"`,
     ].join("\n");
 
+    let larkSent = false;
+    if (isLarkConfigured()) {
+      try {
+        const notifiedLabels =
+          mentionedEmails.length > 0
+            ? mentionedEmails.map((email) => participantLabel(email, participants))
+            : [...recipients].map((email) => participantLabel(email, participants));
+
+        const purpose = pkg.request_purpose?.trim() || "—";
+        await sendLarkMarketingChat(
+          [
+            `📦 Marketing chat — ${pkg.barcode} · ${pkg.status}`,
+            `Recipient: ${pkg.recipient_name} · Purpose: ${purpose}`,
+            `Requested by: ${pkg.requested_by_name} · From: ${message.author_name} · Notified: ${notifiedLabels.join(", ")}`,
+          ],
+          message.body,
+          `Dashboard: ${marketingUrl}`
+        );
+        larkSent = true;
+      } catch (larkErr) {
+        console.error("marketing-chat Lark notify error:", larkErr);
+      }
+    }
+
     let emailed = 0;
 
     for (const to of recipients) {
+      if (!isValidEmail(to)) continue;
+
       const isRequester = to === requesterEmail;
       const wasMentioned = mentionedEmails.includes(to);
-      const openUrl = canFulfill({ email: to, displayName: "", role: roleByEmail.get(to) ?? "requester", division: "Other" })
+      const openUrl = canFulfill({
+        email: to,
+        displayName: "",
+        role: roleByEmail.get(to) ?? "requester",
+        division: "Other",
+      })
         ? fulfillUrl
         : marketingUrl;
 
@@ -128,38 +168,17 @@ export async function POST(request: Request) {
       const text = [intro, "", packageBlock, "", `Open the dashboard to reply: ${openUrl}`].join("\n");
 
       if (hasEmailNotifications()) {
-        await resend.emails.send({
-          from: "Aeris Fulfillment <offlinesalesreports@aerisbeaute.com>",
-          to: [to],
-          subject,
-          text,
-        });
-        emailed += 1;
-      }
-    }
-
-    let larkSent = false;
-    if (isLarkConfigured()) {
-      try {
-        const recipientLabels = [...recipients].join(", ");
-        await sendLarkText(
-          [
-            `📦 Marketing chat — ${pkg.barcode}`,
-            `Recipient: ${pkg.recipient_name}`,
-            purposeLine,
-            `Requested by: ${pkg.requested_by_name}`,
-            `From: ${message.author_name}`,
-            `Notified: ${recipientLabels}`,
-            `Status: ${pkg.status}`,
-            "",
-            message.body,
-            "",
-            `Dashboard: ${marketingUrl}`,
-          ].join("\n")
-        );
-        larkSent = true;
-      } catch (larkErr) {
-        console.error("marketing-chat Lark notify error:", larkErr);
+        try {
+          await resend.emails.send({
+            from: "Aeris Fulfillment <offlinesalesreports@aerisbeaute.com>",
+            to: [to],
+            subject,
+            text,
+          });
+          emailed += 1;
+        } catch (emailErr) {
+          console.error(`marketing-chat email notify error for ${to}:`, emailErr);
+        }
       }
     }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isLarkConfigured, sendLarkText } from "../../../lib/larkNotify";
+import { isLarkConfigured, sendLarkDailySummary } from "../../../lib/larkNotify";
 import { supabase } from "../../../lib/supabaseClient";
 import OpenAI from "openai";
 import { Resend } from "resend";
@@ -83,7 +83,7 @@ export async function GET(request: Request) {
     let larkSent = false;
     if (isLarkConfigured()) {
       try {
-        await sendLarkText([reportSubject, "", aiSummary].join("\n"));
+        await sendLarkDailySummary(reportSubject, aiSummary);
         larkSent = true;
       } catch (larkErr) {
         console.error("daily-summary Lark notify error:", larkErr);

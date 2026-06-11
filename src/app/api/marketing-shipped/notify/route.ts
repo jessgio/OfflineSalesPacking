@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isLarkConfigured, sendLarkText } from "../../../../lib/larkNotify";
+import { isLarkConfigured, sendLarkShippedAlert } from "../../../../lib/larkNotify";
 import { supabase } from "../../../../lib/supabaseClient";
 
 export async function POST(request: Request) {
@@ -31,22 +31,19 @@ export async function POST(request: Request) {
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     const marketingUrl = `${siteUrl}/marketing`;
-    const purposeLine = `Event / purpose: ${pkg.request_purpose?.trim() || "—"}`;
+    const purpose = pkg.request_purpose?.trim() || "—";
 
     let larkSent = false;
     try {
-      await sendLarkText(
-        [
-          `🚚 Package shipped — ${pkg.barcode}`,
-          `Recipient: ${pkg.recipient_name}`,
-          purposeLine,
-          `Requested by: ${pkg.requested_by_name}`,
-          `Shipped by: ${pkg.shipped_by ?? "—"}`,
-          `Status: ${pkg.status}`,
-          "",
-          `Dashboard: ${marketingUrl}`,
-        ].join("\n")
-      );
+      await sendLarkShippedAlert({
+        barcode: pkg.barcode,
+        status: pkg.status,
+        recipientName: pkg.recipient_name,
+        purpose,
+        requestedByName: pkg.requested_by_name,
+        shippedBy: pkg.shipped_by ?? "—",
+        dashboardUrl: marketingUrl,
+      });
       larkSent = true;
     } catch (larkErr) {
       console.error("marketing-shipped Lark notify error:", larkErr);
