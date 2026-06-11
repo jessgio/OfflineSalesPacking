@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../../components/dashboard/primitives";
 import { ChatLoginBar } from "../../../components/marketing/ChatLoginBar";
-import { MarketingChatUnreadBadge } from "../../../components/marketing/MarketingChatUnreadBadge";
+import { MarketingChatNotifications } from "../../../components/marketing/MarketingChatNotifications";
 import { MarketingNewOrdersBadge } from "../../../components/marketing/MarketingNewOrdersBadge";
 import { MarketingRequestDetailModal } from "../../../components/marketing/MarketingRequestDetailModal";
 import { MarketingShipmentsRegistry } from "../../../components/marketing/MarketingShipmentsRegistry";
@@ -103,8 +103,14 @@ export default function MarketingFulfillPage() {
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
-  const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(chatSession);
+  const [openChatForRequestId, setOpenChatForRequestId] = useState<string | null>(null);
+  const { totalUnread, unreadByRequestId, notifications, refreshUnread } = useMarketingChatUnread(chatSession);
   const { totalUnseen, unseenByRequestId, refreshUnseen } = useMarketingUnseenOrders(chatSession);
+
+  const handleNotificationSelect = useCallback((requestId: string) => {
+    setViewingRequestId(requestId);
+    setOpenChatForRequestId(requestId);
+  }, []);
 
   useEffect(() => {
     setChatSession(getMarketingSession());
@@ -406,7 +412,11 @@ export default function MarketingFulfillPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <MarketingChatUnreadBadge count={totalUnread} />
+            <MarketingChatNotifications
+              count={totalUnread}
+              notifications={notifications}
+              onSelectRequest={handleNotificationSelect}
+            />
             <MarketingNewOrdersBadge count={totalUnseen} />
             <div className="text-sm font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
               {pendingCount} pending
@@ -874,8 +884,12 @@ export default function MarketingFulfillPage() {
       {viewingRequest && (
         <MarketingRequestDetailModal
           request={viewingRequest}
-          onClose={() => setViewingRequestId(null)}
+          onClose={() => {
+            setViewingRequestId(null);
+            setOpenChatForRequestId(null);
+          }}
           session={chatSession}
+          defaultOpenChat={openChatForRequestId === viewingRequest.id}
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
           onDelete={

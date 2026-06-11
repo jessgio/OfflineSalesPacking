@@ -46,7 +46,7 @@ import {
   type MarketingImportPreviewRow,
 } from "../../lib/marketingImport";
 import { MarketingAddressFields } from "../../components/marketing/MarketingAddressFields";
-import { MarketingChatUnreadBadge } from "../../components/marketing/MarketingChatUnreadBadge";
+import { MarketingChatNotifications } from "../../components/marketing/MarketingChatNotifications";
 import { MarketingDashboard } from "../../components/marketing/MarketingDashboard";
 import { MarketingRequestDetailModal } from "../../components/marketing/MarketingRequestDetailModal";
 import { MarketingPortalShipmentsPanel } from "../../components/marketing/MarketingPortalShipmentsPanel";
@@ -157,8 +157,14 @@ export default function MarketingPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [portalTab, setPortalTab] = useState<"dashboard" | "submit" | "shipments" | "summary">("dashboard");
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
+  const [openChatForRequestId, setOpenChatForRequestId] = useState<string | null>(null);
 
-  const { totalUnread, unreadByRequestId, refreshUnread } = useMarketingChatUnread(session);
+  const { totalUnread, unreadByRequestId, notifications, refreshUnread } = useMarketingChatUnread(session);
+
+  const handleNotificationSelect = useCallback((requestId: string) => {
+    setViewingRequestId(requestId);
+    setOpenChatForRequestId(requestId);
+  }, []);
 
   useEffect(() => {
     const stored = getMarketingSession();
@@ -578,7 +584,11 @@ export default function MarketingPage() {
             <h1 className="text-xl font-black text-gray-900">Request Goods</h1>
           </div>
           <div className="flex items-center gap-3">
-            <MarketingChatUnreadBadge count={totalUnread} />
+            <MarketingChatNotifications
+              count={totalUnread}
+              notifications={notifications}
+              onSelectRequest={handleNotificationSelect}
+            />
             <span className="text-sm text-gray-600 hidden sm:block">
               {session.displayName}
               <span className="text-gray-400"> · </span>
@@ -1155,8 +1165,12 @@ export default function MarketingPage() {
       {viewingRequest && (
         <MarketingRequestDetailModal
           request={viewingRequest}
-          onClose={() => setViewingRequestId(null)}
+          onClose={() => {
+            setViewingRequestId(null);
+            setOpenChatForRequestId(null);
+          }}
           session={session}
+          defaultOpenChat={openChatForRequestId === viewingRequest.id}
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
         />

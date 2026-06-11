@@ -37,6 +37,7 @@ export function MarketingRequestDetailModal({
   onClose,
   session,
   unreadCount = 0,
+  defaultOpenChat = false,
   onRead,
   onDelete,
   deleting = false,
@@ -45,6 +46,7 @@ export function MarketingRequestDetailModal({
   onClose: () => void;
   session: MarketingSession | null;
   unreadCount?: number;
+  defaultOpenChat?: boolean;
   onRead?: () => void;
   onDelete?: () => void;
   deleting?: boolean;
@@ -175,6 +177,7 @@ export function MarketingRequestDetailModal({
             requestId={request.id}
             packageLabel={`${request.recipient_name} · ${request.barcode}`}
             session={session}
+            defaultOpen={defaultOpenChat}
             unreadCount={unreadCount}
             onRead={onRead}
           />
