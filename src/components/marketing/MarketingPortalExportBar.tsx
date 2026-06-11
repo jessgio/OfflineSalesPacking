@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Filter } from "lucide-react";
+import { Download, Filter, Loader2, Trash2 } from "lucide-react";
 import { DashButton, SurfaceCard, fieldInput } from "../dashboard/primitives";
 import {
   ALL_FILTER,
@@ -17,6 +17,9 @@ export function MarketingPortalExportBar({
   onFiltersChange,
   onClearFilters,
   onExport,
+  onDeleteSelected,
+  deleting = false,
+  deletableSelectedCount = 0,
   showDateFilters = true,
   showStatusFilter = true,
 }: {
@@ -31,6 +34,9 @@ export function MarketingPortalExportBar({
   onFiltersChange: (filters: PortalExportFilters) => void;
   onClearFilters: () => void;
   onExport: () => void;
+  onDeleteSelected?: () => void;
+  deleting?: boolean;
+  deletableSelectedCount?: number;
   showDateFilters?: boolean;
   showStatusFilter?: boolean;
 }) {
@@ -147,8 +153,8 @@ export function MarketingPortalExportBar({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-gray-600">
           {selectedCount > 0
-            ? `${selectedCount} selected · exports selection only`
-            : `${filteredCount} matching · select rows below to export a subset, or export all matching`}
+            ? `${selectedCount} selected · export or delete selection below`
+            : `${filteredCount} matching · select rows below to export or delete a subset, or export all matching`}
         </p>
         <div className="flex flex-wrap items-center gap-3 shrink-0">
           {activeFilters && (
@@ -159,6 +165,23 @@ export function MarketingPortalExportBar({
             >
               Clear filters
             </button>
+          )}
+          {onDeleteSelected && selectedCount > 0 && (
+            <DashButton
+              type="button"
+              variant="danger"
+              size="md"
+              disabled={deleting || deletableSelectedCount === 0}
+              onClick={onDeleteSelected}
+              className="shrink-0"
+            >
+              {deleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Delete ({deletableSelectedCount})
+            </DashButton>
           )}
           <DashButton
             type="button"

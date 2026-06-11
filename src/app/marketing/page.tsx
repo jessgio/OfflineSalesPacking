@@ -56,7 +56,7 @@ import { RequestChat } from "../../components/marketing/RequestChat";
 import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import { useMarketingChatUnread } from "../../hooks/useMarketingChatUnread";
 import { buildPortalShipmentRequests } from "../../lib/marketingPortalFilters";
-import { canAccessRequestPortal, roleLabel } from "../../lib/marketingRoles";
+import { canAccessRequestPortal, isAdmin, roleLabel } from "../../lib/marketingRoles";
 import {
   MARKETING_COURIER_OPTIONS,
   type MarketingCourier,
@@ -348,7 +348,11 @@ export default function MarketingPage() {
   };
 
   const handleDeleteRequest = async (req: MarketingRequest) => {
-    if (!session || req.status !== "pending") return;
+    if (!session) return;
+    const canDelete =
+      isAdmin(session) || (req.status === "pending" && req.requested_by_email === session.email);
+    if (!canDelete) return;
+
     const confirmed = window.confirm(
       `Delete request for ${req.recipient_name} (${req.barcode})?\n\nThis cannot be undone.`
     );
@@ -359,7 +363,11 @@ export default function MarketingPage() {
     try {
       await deleteMarketingRequest(session, req.id);
       if (editingId === req.id) resetForm();
+      if (viewingRequestId === req.id) setViewingRequestId(null);
       await loadRequests();
+      if (portalTab === "shipments" || portalTab === "dashboard" || portalTab === "summary") {
+        await loadDashboardRequests(true);
+      }
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : "Failed to delete request");
     } finally {
@@ -1173,6 +1181,14 @@ export default function MarketingPage() {
           defaultOpenChat={openChatForRequestId === viewingRequest.id}
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
+          onDelete={
+            isAdmin(session) ||
+            (viewingRequest.status === "pending" &&
+              viewingRequest.requested_by_email === session.email)
+              ? () => handleDeleteRequest(viewingRequest)
+              : undefined
+          }
+          deleting={deletingId === viewingRequest.id}
         />
       )}
     </div>

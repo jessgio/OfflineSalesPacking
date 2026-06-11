@@ -244,12 +244,11 @@ export async function deleteMarketingRequest(
       .from("marketing_requests")
       .delete()
       .eq("id", id)
-      .eq("status", "shipped")
       .select("id");
 
     if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete request"));
     if (!data?.length) {
-      throw new Error("Only completed (shipped) orders can be deleted.");
+      throw new Error("Request not found.");
     }
     return;
   }
@@ -272,23 +271,38 @@ export async function deleteMarketingRequestsBulk(
   session: MarketingSession,
   ids: string[]
 ): Promise<number> {
-  if (!isAdmin(session)) {
-    throw new Error("Only fulfillment admins can delete completed shipments.");
-  }
   if (ids.length === 0) throw new Error("Select at least one order.");
+
+  if (isAdmin(session)) {
+    const { data, error } = await supabase
+      .from("marketing_requests")
+      .delete()
+      .in("id", ids)
+      .select("id");
+
+    if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete requests"));
+
+    const deleted = data?.length ?? 0;
+    if (deleted === 0) {
+      throw new Error("No matching requests found.");
+    }
+
+    return deleted;
+  }
 
   const { data, error } = await supabase
     .from("marketing_requests")
     .delete()
     .in("id", ids)
-    .eq("status", "shipped")
+    .eq("requested_by_email", session.email)
+    .eq("status", "pending")
     .select("id");
 
   if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete requests"));
 
   const deleted = data?.length ?? 0;
   if (deleted === 0) {
-    throw new Error("Only completed (shipped) orders can be deleted.");
+    throw new Error("Only your own pending requests can be deleted.");
   }
 
   return deleted;
@@ -422,7 +436,23 @@ export async function updateMarketingActualShippingLabel(
   id: string,
   label: string
 ): Promise<MarketingRequest> {
-  await assertCanEditRegistryField(session, id);
+  if (!isAdmin(session)) {
+    throw new Error("Only admins can edit shipping labels.");
+  }
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("marketing_requests")
+    .select("id, status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (lookupError) {
+    throw new Error(getSupabaseErrorMessage(lookupError, "Failed to verify request"));
+  }
+  if (!existing) throw new Error("Request not found.");
+  if (existing.status === "cancelled") {
+    throw new Error("Cancelled requests cannot be edited.");
+  }
 
   const trimmed = label.trim();
   const { data, error } = await supabase

@@ -13,7 +13,7 @@ import {
   type MarketingRequest,
   type MarketingSession,
 } from "../../types/marketing";
-import { canFulfill } from "../../lib/marketingRoles";
+import { canFulfill, isAdmin } from "../../lib/marketingRoles";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -155,6 +155,7 @@ export function MarketingShipmentsRegistry({
   }, [requests]);
 
   const isFulfillmentStaff = session ? canFulfill(session) : false;
+  const isPortalAdmin = session ? isAdmin(session) : false;
   const isPortal = variant === "portal";
 
   const canEditPurpose = (req: MarketingRequest) =>
@@ -162,8 +163,8 @@ export function MarketingShipmentsRegistry({
 
   const canEditLabel = (req: MarketingRequest) =>
     !!session &&
-    courierNeedsActualShippingLabel(req.preferred_courier) &&
-    (isFulfillmentStaff || req.requested_by_email === session.email);
+    isPortalAdmin &&
+    courierNeedsActualShippingLabel(req.preferred_courier);
 
   const handleSavePurpose = async (req: MarketingRequest) => {
     if (!session || !canEditPurpose(req)) return;
@@ -228,19 +229,20 @@ export function MarketingShipmentsRegistry({
             <p className="text-sm text-gray-600 mt-1">
               {isPortal ? (
                 <>
-                  Filter above, tick rows to bulk export, or export all matching shipments as CSV.
+                  Filter above, tick rows to bulk export or delete, or export all matching shipments as CSV.
                 </>
               ) : (
                 <>
-                  All ongoing and completed orders. Edit <span className="font-semibold">Purpose</span> or
-                  record <span className="font-semibold">Actual shipping label</span> for{" "}
+                  All ongoing and completed orders. Edit <span className="font-semibold">Purpose</span> inline.
+                  Admins can record <span className="font-semibold">Actual shipping label</span> for{" "}
                   {MARKETING_COURIERS_WITH_SHIPPING_LABEL.map((courier, i) => (
                     <span key={courier}>
                       {i > 0 && (i === MARKETING_COURIERS_WITH_SHIPPING_LABEL.length - 1 ? " and " : ", ")}
                       <span className="font-semibold">{courier}</span>
                     </span>
                   ))}{" "}
-                  shipments inline.
+                  shipments
+                  {selectable ? ", or select rows to bulk delete as admin" : ""}.
                 </>
               )}
             </p>
@@ -254,7 +256,8 @@ export function MarketingShipmentsRegistry({
         </div>
         {!isPortal && !isFulfillmentStaff && (
           <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
-            Sign in as fulfillment or admin above to edit purpose and shipping labels for any order.
+            Sign in as fulfillment or admin above to edit purpose for any order. Only admins can record
+            shipping labels.
           </p>
         )}
       </div>

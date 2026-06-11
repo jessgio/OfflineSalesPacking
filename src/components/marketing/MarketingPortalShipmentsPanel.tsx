@@ -13,7 +13,14 @@ import {
   type PortalExportFilters,
 } from "../../lib/marketingPortalFilters";
 import { downloadMarketingHistoryExport } from "../../lib/marketingExport";
+import { deleteMarketingRequestsBulk } from "../../lib/marketingDb";
+import { isAdmin } from "../../lib/marketingRoles";
 import type { MarketingRequest, MarketingSession } from "../../types/marketing";
+
+function canDeleteShipment(session: MarketingSession, req: MarketingRequest): boolean {
+  if (isAdmin(session)) return true;
+  return req.requested_by_email === session.email && req.status === "pending";
+}
 
 function groupRequestsByPurpose(requests: MarketingRequest[]) {
   const groups = new Map<string, MarketingRequest[]>();
@@ -52,6 +59,8 @@ export function MarketingPortalShipmentsPanel({
   const [filters, setFilters] = useState<PortalExportFilters>(() => defaultPortalFilters(session));
   const [filtersInitialized, setFiltersInitialized] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     if (filtersInitialized) return;
@@ -96,6 +105,41 @@ export function MarketingPortalShipmentsPanel({
     downloadMarketingHistoryExport(toExport);
   };
 
+  const deletableSelected = useMemo(
+    () =>
+      filteredRequests.filter(
+        (req) => selectedIds.includes(req.id) && canDeleteShipment(session, req)
+      ),
+    [filteredRequests, selectedIds, session]
+  );
+
+  const handleBulkDelete = async () => {
+    if (deletableSelected.length === 0) return;
+
+    const isPortalAdmin = isAdmin(session);
+    const confirmed = window.confirm(
+      isPortalAdmin
+        ? `Delete ${deletableSelected.length} shipment${deletableSelected.length === 1 ? "" : "s"}?\n\nThis cannot be undone.`
+        : `Delete ${deletableSelected.length} pending request${deletableSelected.length === 1 ? "" : "s"}?\n\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setBatchDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteMarketingRequestsBulk(
+        session,
+        deletableSelected.map((req) => req.id)
+      );
+      setSelectedIds([]);
+      onUpdated();
+    } catch (e: unknown) {
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete selected shipments");
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
   const clearFilters = () => {
     setFilters({
       division: ALL_FILTER,
@@ -117,6 +161,12 @@ export function MarketingPortalShipmentsPanel({
 
   return (
     <div className="space-y-6">
+      {deleteError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-lg">
+          {deleteError}
+        </div>
+      )}
+
       <MarketingPortalExportBar
         filters={filters}
         filterOptions={filterOptions}
@@ -125,6 +175,9 @@ export function MarketingPortalShipmentsPanel({
         onFiltersChange={setFilters}
         onClearFilters={clearFilters}
         onExport={handleExport}
+        onDeleteSelected={handleBulkDelete}
+        deleting={batchDeleting}
+        deletableSelectedCount={deletableSelected.length}
       />
 
       {filteredRequests.length > 0 && (
