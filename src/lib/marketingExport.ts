@@ -5,6 +5,7 @@ const EXPORT_HEADERS = [
   "status",
   "requested_by_name",
   "requested_by_email",
+  "requested_by_division",
   "requested_at",
   "recipient_name",
   "recipient_phone",
@@ -56,6 +57,7 @@ export function buildMarketingHistoryExportCsv(requests: MarketingRequest[]): st
         req.status,
         req.requested_by_name,
         req.requested_by_email,
+        req.requested_by_division ?? "",
         formatTimestamp(req.created_at),
         req.recipient_name,
         req.recipient_phone ?? "",
@@ -87,7 +89,10 @@ export function buildMarketingHistoryExportCsv(requests: MarketingRequest[]): st
   return rows.join("\r\n");
 }
 
-export function downloadMarketingHistoryExport(requests: MarketingRequest[]): void {
+export function downloadMarketingHistoryExport(
+  requests: MarketingRequest[],
+  filenamePrefix = "marketing-shipments-export"
+): void {
   if (requests.length === 0) return;
 
   const csv = buildMarketingHistoryExportCsv(requests);
@@ -96,7 +101,7 @@ export function downloadMarketingHistoryExport(requests: MarketingRequest[]): vo
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `marketing-completed-export-${stamp}.csv`;
+  anchor.download = `${filenamePrefix}-${stamp}.csv`;
   anchor.click();
   URL.revokeObjectURL(url);
 }

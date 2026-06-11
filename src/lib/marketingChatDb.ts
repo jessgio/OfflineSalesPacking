@@ -1,17 +1,17 @@
 import { supabase } from "./supabaseClient";
 import { getSupabaseErrorMessage } from "./supabaseError";
 import { mentionHandleFromEmail } from "./marketingMentions";
+import { canFulfill, normalizeUserRole } from "./marketingRoles";
 import type {
   MarketingChatParticipant,
   MarketingRequestMessage,
   MarketingSession,
-  MarketingUserRole,
 } from "../types/marketing";
 
 export async function fetchChatParticipants(): Promise<MarketingChatParticipant[]> {
   const { data, error } = await supabase
     .from("marketing_users")
-    .select("email, display_name, role")
+    .select("email, display_name, role, division")
     .eq("active", true)
     .order("role")
     .order("display_name");
@@ -21,7 +21,8 @@ export async function fetchChatParticipants(): Promise<MarketingChatParticipant[
   return (data ?? []).map((row) => ({
     email: row.email,
     display_name: row.display_name,
-    role: row.role as MarketingUserRole,
+    role: normalizeUserRole(row.role),
+    division: (row.division?.trim() || "Other") as MarketingChatParticipant["division"],
     handle: mentionHandleFromEmail(row.email),
   }));
 }
@@ -94,7 +95,7 @@ export async function fetchUnreadChatCounts(session: MarketingSession): Promise<
   const readAt = new Map((reads ?? []).map((row) => [row.request_id, row.last_read_at]));
 
   let requestsQuery = supabase.from("marketing_requests").select("id");
-  if (session.role !== "admin") {
+  if (!canFulfill(session)) {
     requestsQuery = requestsQuery.eq("requested_by_email", session.email);
   }
 

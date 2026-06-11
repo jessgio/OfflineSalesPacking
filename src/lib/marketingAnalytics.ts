@@ -25,11 +25,26 @@ export interface MarketingTrendBucket {
   items: number;
 }
 
+export interface MarketingPurposeRequesterStat {
+  name: string;
+  email: string;
+  requests: number;
+  items: number;
+}
+
+export interface MarketingPurposeDivisionStat {
+  division: string;
+  requests: number;
+  items: number;
+}
+
 export interface MarketingPurposeStat {
   label: string;
   purposeKey: string;
   requests: number;
   items: number;
+  byRequester?: MarketingPurposeRequesterStat[];
+  byDivision?: MarketingPurposeDivisionStat[];
 }
 
 export interface MarketingProductStat {
@@ -122,7 +137,95 @@ function purposeLabel(purpose: string | null | undefined): string {
   return trimmed || "No purpose assigned";
 }
 
-export function buildMarketingDashboardStats(requests: MarketingRequest[]): MarketingDashboardStats {
+function purposeKeyFromRequest(req: MarketingRequest): string {
+  return req.request_purpose?.trim() || "";
+}
+
+function divisionLabelFromRequest(req: MarketingRequest): string {
+  const trimmed = req.requested_by_division?.trim();
+  return trimmed || "Other";
+}
+
+function attachRequesterBreakdown(
+  requests: MarketingRequest[],
+  purposeStats: MarketingPurposeStat[]
+): MarketingPurposeStat[] {
+  const requestsByPurpose = new Map<string, MarketingRequest[]>();
+  for (const req of requests) {
+    const key = purposeKeyFromRequest(req);
+    const list = requestsByPurpose.get(key) ?? [];
+    list.push(req);
+    requestsByPurpose.set(key, list);
+  }
+
+  return purposeStats.map((stat) => {
+    const purposeRequests = requestsByPurpose.get(stat.purposeKey) ?? [];
+    const requesterMap = new Map<string, MarketingPurposeRequesterStat>();
+
+    for (const req of purposeRequests) {
+      const email = req.requested_by_email;
+      const entry = requesterMap.get(email) ?? {
+        name: req.requested_by_name,
+        email,
+        requests: 0,
+        items: 0,
+      };
+      entry.requests++;
+      entry.items += countItems(req);
+      requesterMap.set(email, entry);
+    }
+
+    const byRequester = [...requesterMap.values()].sort(
+      (a, b) => b.requests - a.requests || a.name.localeCompare(b.name)
+    );
+
+    return byRequester.length > 0 ? { ...stat, byRequester } : stat;
+  });
+}
+
+function attachDivisionBreakdown(
+  requests: MarketingRequest[],
+  purposeStats: MarketingPurposeStat[]
+): MarketingPurposeStat[] {
+  const requestsByPurpose = new Map<string, MarketingRequest[]>();
+  for (const req of requests) {
+    const key = purposeKeyFromRequest(req);
+    const list = requestsByPurpose.get(key) ?? [];
+    list.push(req);
+    requestsByPurpose.set(key, list);
+  }
+
+  return purposeStats.map((stat) => {
+    const purposeRequests = requestsByPurpose.get(stat.purposeKey) ?? [];
+    const divisionMap = new Map<string, MarketingPurposeDivisionStat>();
+
+    for (const req of purposeRequests) {
+      const division = divisionLabelFromRequest(req);
+      const entry = divisionMap.get(division) ?? {
+        division,
+        requests: 0,
+        items: 0,
+      };
+      entry.requests++;
+      entry.items += countItems(req);
+      divisionMap.set(division, entry);
+    }
+
+    const byDivision = [...divisionMap.values()].sort(
+      (a, b) => b.requests - a.requests || a.division.localeCompare(b.division)
+    );
+
+    return byDivision.length > 0 ? { ...stat, byDivision } : stat;
+  });
+}
+
+export function buildMarketingDashboardStats(
+  requests: MarketingRequest[],
+  options?: {
+    includeRequesterBreakdown?: boolean;
+    includeDivisionBreakdown?: boolean;
+  }
+): MarketingDashboardStats {
   const now = new Date();
   const weekStart = startOfWeek(now);
   const nextWeekStart = addDays(weekStart, 7);
@@ -229,6 +332,13 @@ export function buildMarketingDashboardStats(requests: MarketingRequest[]): Mark
   }
 
   const requestCount = requests.length;
+  const byPurposeBase = [...purposeMap.values()].sort((a, b) => b.requests - a.requests);
+  let byPurpose = byPurposeBase;
+  if (options?.includeDivisionBreakdown) {
+    byPurpose = attachDivisionBreakdown(requests, byPurpose);
+  } else if (options?.includeRequesterBreakdown) {
+    byPurpose = attachRequesterBreakdown(requests, byPurpose);
+  }
 
   return {
     totals: {
@@ -243,7 +353,7 @@ export function buildMarketingDashboardStats(requests: MarketingRequest[]): Mark
       thisMonth: sumPeriod(requests, monthStart, nextMonthStart),
       lastMonth: sumPeriod(requests, lastMonthStart, monthStart),
     },
-    byPurpose: [...purposeMap.values()].sort((a, b) => b.requests - a.requests),
+    byPurpose,
     byCourier: [...courierMap.entries()]
       .map(([courier, count]) => ({ courier, requests: count }))
       .sort((a, b) => b.requests - a.requests),
@@ -270,4 +380,52 @@ export function formatDelta(current: number, previous: number): string {
   const pct = Math.round(((current - previous) / previous) * 100);
   if (pct === 0) return "0%";
   return `${pct > 0 ? "+" : ""}${pct}%`;
+}
+
+export type DashboardMetricKey =
+  | "all"
+  | "avg-items"
+  | "this-week"
+  | "this-month"
+  | "pending"
+  | "packed"
+  | "shipped"
+  | "cancelled";
+
+export const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
+  all: "All-time shipments",
+  "avg-items": "All shipments",
+  "this-week": "This week",
+  "this-month": "This month",
+  pending: "Pending",
+  packed: "Packed",
+  shipped: "Shipped",
+  cancelled: "Cancelled",
+};
+
+export function filterRequestsForDashboardMetric(
+  requests: MarketingRequest[],
+  metric: DashboardMetricKey
+): MarketingRequest[] {
+  if (metric === "pending" || metric === "packed" || metric === "shipped" || metric === "cancelled") {
+    return requests.filter((req) => req.status === metric);
+  }
+  if (metric === "all" || metric === "avg-items") {
+    return requests;
+  }
+
+  const now = new Date();
+  const weekStart = startOfWeek(now);
+  const nextWeekStart = addDays(weekStart, 7);
+  const monthStart = startOfMonth(now);
+  const nextMonthStart = addMonths(monthStart, 1);
+
+  if (metric === "this-week") {
+    return requests.filter((req) => inRange(req.created_at, weekStart, nextWeekStart));
+  }
+  if (metric === "this-month") {
+    return requests.filter((req) => inRange(req.created_at, monthStart, nextMonthStart));
+  }
+
+  return requests;
 }

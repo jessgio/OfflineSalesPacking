@@ -12,6 +12,7 @@ import {
   type MarketingRequest,
   type MarketingSession,
 } from "../../types/marketing";
+import { canFulfill } from "../../lib/marketingRoles";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -118,6 +119,11 @@ export function MarketingShipmentsRegistry({
   onUpdated,
   variant = "fulfill",
   live = false,
+  selectable = false,
+  selectedIds = [],
+  onToggleRow,
+  onToggleAll,
+  allVisibleSelected = false,
 }: {
   requests: MarketingRequest[];
   session: MarketingSession | null;
@@ -125,6 +131,11 @@ export function MarketingShipmentsRegistry({
   onUpdated: () => void;
   variant?: "fulfill" | "portal";
   live?: boolean;
+  selectable?: boolean;
+  selectedIds?: string[];
+  onToggleRow?: (id: string) => void;
+  onToggleAll?: () => void;
+  allVisibleSelected?: boolean;
 }) {
   const [purposeDrafts, setPurposeDrafts] = useState<Record<string, string>>({});
   const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
@@ -142,16 +153,16 @@ export function MarketingShipmentsRegistry({
     setLabelDrafts(nextLabel);
   }, [requests]);
 
-  const isAdmin = session?.role === "admin";
+  const isFulfillmentStaff = session ? canFulfill(session) : false;
   const isPortal = variant === "portal";
 
   const canEditPurpose = (req: MarketingRequest) =>
-    !!session && (isAdmin || req.requested_by_email === session.email);
+    !!session && (isFulfillmentStaff || req.requested_by_email === session.email);
 
   const canEditLabel = (req: MarketingRequest) =>
     !!session &&
     courierNeedsActualShippingLabel(req.preferred_courier) &&
-    (isAdmin || req.requested_by_email === session.email);
+    (isFulfillmentStaff || req.requested_by_email === session.email);
 
   const handleSavePurpose = async (req: MarketingRequest) => {
     if (!session || !canEditPurpose(req)) return;
@@ -211,15 +222,12 @@ export function MarketingShipmentsRegistry({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="font-bold text-gray-900">
-              {isPortal ? "My shipments" : "Shipment registry"}
+              {isPortal ? "Shipments" : "Shipment registry"}
             </h2>
             <p className="text-sm text-gray-600 mt-1">
               {isPortal ? (
                 <>
-                  Track status and carrier labels for your requests. Edit{" "}
-                  <span className="font-semibold">Purpose</span> or{" "}
-                  <span className="font-semibold">Actual shipping label</span> inline — changes save
-                  when you click the checkmark.
+                  Filter above, tick rows to bulk export, or export all matching shipments as CSV.
                 </>
               ) : (
                 <>
@@ -238,9 +246,9 @@ export function MarketingShipmentsRegistry({
             </span>
           )}
         </div>
-        {!isPortal && !isAdmin && (
+        {!isPortal && !isFulfillmentStaff && (
           <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
-            Sign in as fulfillment admin above to edit purpose and shipping labels for any order.
+            Sign in as fulfillment or admin above to edit purpose and shipping labels for any order.
           </p>
         )}
       </div>
@@ -249,8 +257,20 @@ export function MarketingShipmentsRegistry({
         <table className="w-full text-sm min-w-[1040px]">
           <thead className="bg-gray-50 text-left text-[10px] font-bold uppercase tracking-wide text-gray-600">
             <tr>
+              {selectable && (
+                <th className="px-3 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={() => onToggleAll?.()}
+                    aria-label="Select all visible shipments"
+                    className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                  />
+                </th>
+              )}
               <th className="px-3 py-3">Status</th>
               <th className="px-3 py-3">Barcode</th>
+              <th className="px-3 py-3">Division</th>
               <th className="px-3 py-3">Recipient</th>
               <th className="px-3 py-3">Courier</th>
               <th className="px-3 py-3">Due</th>
@@ -275,8 +295,22 @@ export function MarketingShipmentsRegistry({
               return (
                 <tr
                   key={req.id}
-                  className="border-t border-gray-100 hover:bg-gray-50/80 group"
+                  className={cx(
+                    "border-t border-gray-100 hover:bg-gray-50/80 group",
+                    selectable && selectedIds.includes(req.id) && "bg-violet-50/50"
+                  )}
                 >
+                  {selectable && (
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(req.id)}
+                        onChange={() => onToggleRow?.(req.id)}
+                        aria-label={`Select ${req.barcode}`}
+                        className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-3">
                     <button
                       type="button"
@@ -301,6 +335,9 @@ export function MarketingShipmentsRegistry({
                     >
                       {req.barcode}
                     </button>
+                  </td>
+                  <td className="px-3 py-3 text-gray-800 whitespace-nowrap">
+                    {req.requested_by_division ?? "—"}
                   </td>
                   <td className="px-3 py-3">
                     <button

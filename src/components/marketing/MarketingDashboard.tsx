@@ -1,24 +1,38 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   BarChart3,
   CalendarDays,
   ChevronRight,
+  Filter,
   Loader2,
   Package,
   ShoppingBag,
   TrendingUp,
 } from "lucide-react";
 import { SurfaceCard, cx } from "../dashboard/primitives";
+import { MarketingPortalExportBar } from "./MarketingPortalExportBar";
 import {
+  DASHBOARD_METRIC_LABELS,
   buildMarketingDashboardStats,
+  filterRequestsForDashboardMetric,
   formatDelta,
+  type DashboardMetricKey,
   type MarketingActivityEvent,
   type MarketingTrendBucket,
 } from "../../lib/marketingAnalytics";
-import type { MarketingRequest } from "../../types/marketing";
+import { MarketingDashboardMetricOrders } from "./MarketingDashboardMetricOrders";
+import {
+  ALL_FILTER,
+  buildPortalFilterOptions,
+  defaultDashboardFilters,
+  filterRequestsForPortal,
+  type PortalExportFilters,
+} from "../../lib/marketingPortalFilters";
+import { downloadMarketingHistoryExport } from "../../lib/marketingExport";
+import type { MarketingRequest, MarketingSession } from "../../types/marketing";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -47,11 +61,17 @@ function StatCard({
   value,
   sub,
   accent = "violet",
+  metricKey,
+  selectedMetric,
+  onSelectMetric,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   accent?: "violet" | "blue" | "green" | "amber";
+  metricKey?: DashboardMetricKey;
+  selectedMetric?: DashboardMetricKey | null;
+  onSelectMetric?: (key: DashboardMetricKey) => void;
 }) {
   const accentClasses = {
     violet: "text-violet-700 bg-violet-50 border-violet-100",
@@ -60,12 +80,101 @@ function StatCard({
     amber: "text-amber-800 bg-amber-50 border-amber-100",
   };
 
-  return (
-    <SurfaceCard className={cx("p-4 border", accentClasses[accent])}>
+  const numericValue = typeof value === "number" ? value : Number(value);
+  const clickable = Boolean(metricKey && onSelectMetric && numericValue > 0);
+  const selected = Boolean(metricKey && selectedMetric === metricKey);
+
+  const content = (
+    <>
       <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</p>
       <p className="text-3xl font-black tabular-nums mt-1 leading-none">{value}</p>
       {sub && <p className="text-xs font-medium mt-2 opacity-90">{sub}</p>}
-    </SurfaceCard>
+      {clickable && (
+        <p className="text-[10px] font-bold uppercase tracking-wide mt-3 opacity-70 inline-flex items-center gap-1">
+          View orders
+          <ChevronRight className="w-3 h-3" />
+        </p>
+      )}
+    </>
+  );
+
+  if (!clickable || !metricKey || !onSelectMetric) {
+    return (
+      <SurfaceCard className={cx("p-4 border", accentClasses[accent])}>{content}</SurfaceCard>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelectMetric(metricKey)}
+      className={cx(
+        "w-full text-left rounded-xl border shadow-sm transition p-4",
+        accentClasses[accent],
+        selected && "ring-2 ring-violet-400 ring-offset-2",
+        "hover:brightness-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
+      )}
+      aria-pressed={selected}
+    >
+      {content}
+    </button>
+  );
+}
+
+function StatusMetricCard({
+  label,
+  count,
+  accent,
+  metricKey,
+  selectedMetric,
+  onSelectMetric,
+}: {
+  label: string;
+  count: number;
+  accent: "amber" | "blue" | "green" | "violet";
+  metricKey: DashboardMetricKey;
+  selectedMetric: DashboardMetricKey | null;
+  onSelectMetric: (key: DashboardMetricKey) => void;
+}) {
+  const clickable = count > 0;
+  const selected = selectedMetric === metricKey;
+  const valueColor = {
+    amber: "text-amber-700",
+    blue: "text-blue-700",
+    green: "text-green-700",
+    violet: "text-violet-700",
+  }[accent];
+
+  const content = (
+    <>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{label}</p>
+      <p className={cx("text-2xl font-black tabular-nums mt-1", valueColor)}>{count}</p>
+      {clickable && (
+        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mt-2 inline-flex items-center gap-1">
+          View orders
+          <ChevronRight className="w-3 h-3" />
+        </p>
+      )}
+    </>
+  );
+
+  if (!clickable) {
+    return <SurfaceCard className="p-4 text-center">{content}</SurfaceCard>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelectMetric(metricKey)}
+      className={cx(
+        "w-full text-center rounded-xl border border-gray-200 bg-white shadow-sm p-4 transition",
+        selected && "ring-2 ring-violet-400 ring-offset-2",
+        "hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
+      )}
+      aria-pressed={selected}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -130,13 +239,63 @@ function TrendBars({
 export function MarketingDashboard({
   requests,
   loading,
+  session,
   onViewRequest,
 }: {
   requests: MarketingRequest[];
   loading: boolean;
+  session: MarketingSession;
   onViewRequest: (id: string) => void;
 }) {
-  const stats = useMemo(() => buildMarketingDashboardStats(requests), [requests]);
+  const [filters, setFilters] = useState<PortalExportFilters>(() => defaultDashboardFilters());
+  const [filtersInitialized, setFiltersInitialized] = useState(false);
+  const [selectedMetric, setSelectedMetric] = useState<DashboardMetricKey | null>(null);
+
+  useEffect(() => {
+    if (filtersInitialized) return;
+    setFilters(defaultDashboardFilters());
+    setFiltersInitialized(true);
+  }, [filtersInitialized]);
+
+  const filterOptions = useMemo(() => buildPortalFilterOptions(requests), [requests]);
+
+  const filteredRequests = useMemo(
+    () => filterRequestsForPortal(requests, filters),
+    [requests, filters]
+  );
+
+  const viewingAllDivisions = filters.division === ALL_FILTER;
+  const viewingByDivision = !viewingAllDivisions;
+
+  const stats = useMemo(
+    () =>
+      buildMarketingDashboardStats(filteredRequests, {
+        includeDivisionBreakdown: viewingAllDivisions,
+        includeRequesterBreakdown: viewingByDivision,
+      }),
+    [filteredRequests, viewingAllDivisions, viewingByDivision]
+  );
+
+  const clearFilters = () => {
+    setFilters(defaultDashboardFilters());
+  };
+
+  const handleExport = () => {
+    downloadMarketingHistoryExport(filteredRequests);
+  };
+
+  const toggleMetric = (metric: DashboardMetricKey) => {
+    setSelectedMetric((current) => (current === metric ? null : metric));
+  };
+
+  const metricOrders = useMemo(() => {
+    if (!selectedMetric) return [];
+    return filterRequestsForDashboardMetric(filteredRequests, selectedMetric);
+  }, [filteredRequests, selectedMetric]);
+
+  useEffect(() => {
+    setSelectedMetric(null);
+  }, [filters]);
 
   if (loading) {
     return (
@@ -158,57 +317,133 @@ export function MarketingDashboard({
     );
   }
 
+  if (filteredRequests.length === 0) {
+    return (
+      <div className="space-y-6">
+        <MarketingPortalExportBar
+          filters={filters}
+          filterOptions={filterOptions}
+          filteredCount={filteredRequests.length}
+          selectedCount={0}
+          onFiltersChange={setFilters}
+          onClearFilters={clearFilters}
+          onExport={handleExport}
+        />
+        <SurfaceCard className="p-12 text-center">
+          <Filter className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+          <p className="font-semibold text-gray-800">No shipments match these filters</p>
+          <p className="text-sm text-gray-600 mt-2">Try widening division, user, or purpose.</p>
+        </SurfaceCard>
+      </div>
+    );
+  }
+
   const { totals, periods, byPurpose, byCourier, weeklyTrend, monthlyTrend, topProducts, recentActivity } =
     stats;
 
   return (
     <div className="space-y-6">
+      <MarketingPortalExportBar
+        filters={filters}
+        filterOptions={filterOptions}
+        filteredCount={filteredRequests.length}
+        selectedCount={0}
+        onFiltersChange={setFilters}
+        onClearFilters={clearFilters}
+        onExport={handleExport}
+      />
+
+      {viewingAllDivisions && (
+        <p className="text-xs text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+          All divisions — division totals appear under each purpose below.
+        </p>
+      )}
+      {viewingByDivision && (
+        <p className="text-xs text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+          Viewing <span className="font-bold">{filters.division}</span> — requester totals appear under each purpose below.
+        </p>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="All-time shipments" value={totals.requests} sub={`${totals.items} items ordered`} />
+        <StatCard
+          label="All-time shipments"
+          value={totals.requests}
+          sub={`${totals.items} items ordered`}
+          metricKey="all"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
+        />
         <StatCard
           label="Avg items / shipment"
           value={totals.avgItemsPerRequest}
           accent="blue"
+          metricKey="avg-items"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
         />
         <StatCard
           label="This week"
           value={periods.thisWeek.requests}
           sub={`${periods.thisWeek.items} items · ${formatDelta(periods.thisWeek.requests, periods.lastWeek.requests)} vs last week`}
           accent="green"
+          metricKey="this-week"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
         />
         <StatCard
           label="This month"
           value={periods.thisMonth.requests}
           sub={`${periods.thisMonth.items} items · ${formatDelta(periods.thisMonth.requests, periods.lastMonth.requests)} vs last month`}
           accent="amber"
+          metricKey="this-month"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
         />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-4">
-        {(
-          [
-            ["Pending", totals.pending, "amber"],
-            ["Packed", totals.packed, "blue"],
-            ["Shipped", totals.shipped, "green"],
-            ["Cancelled", totals.cancelled, "violet"],
-          ] as const
-        ).map(([label, count, accent]) => (
-          <SurfaceCard key={label} className="p-4 text-center">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{label}</p>
-            <p
-              className={cx(
-                "text-2xl font-black tabular-nums mt-1",
-                accent === "amber" && "text-amber-700",
-                accent === "blue" && "text-blue-700",
-                accent === "green" && "text-green-700",
-                accent === "violet" && "text-violet-700"
-              )}
-            >
-              {count}
-            </p>
-          </SurfaceCard>
-        ))}
+        <StatusMetricCard
+          label="Pending"
+          count={totals.pending}
+          accent="amber"
+          metricKey="pending"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
+        />
+        <StatusMetricCard
+          label="Packed"
+          count={totals.packed}
+          accent="blue"
+          metricKey="packed"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
+        />
+        <StatusMetricCard
+          label="Shipped"
+          count={totals.shipped}
+          accent="green"
+          metricKey="shipped"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
+        />
+        <StatusMetricCard
+          label="Cancelled"
+          count={totals.cancelled}
+          accent="violet"
+          metricKey="cancelled"
+          selectedMetric={selectedMetric}
+          onSelectMetric={toggleMetric}
+        />
       </div>
+
+      {selectedMetric && (
+        <MarketingDashboardMetricOrders
+          title={DASHBOARD_METRIC_LABELS[selectedMetric]}
+          requests={metricOrders}
+          onViewRequest={onViewRequest}
+          onClose={() => setSelectedMetric(null)}
+        />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <TrendBars
@@ -240,13 +475,55 @@ export function MarketingDashboard({
               </thead>
               <tbody>
                 {byPurpose.map((row) => (
-                  <tr key={row.purposeKey || "__none__"} className="border-t border-gray-100">
-                    <td className="py-2.5 pr-3 font-medium text-violet-900 max-w-[220px] truncate" title={row.label}>
-                      {row.label}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right font-bold tabular-nums">{row.requests}</td>
-                    <td className="py-2.5 text-right font-bold tabular-nums text-gray-700">{row.items}</td>
-                  </tr>
+                  <Fragment key={row.purposeKey || "__none__"}>
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2.5 pr-3 font-medium text-violet-900 max-w-[320px] truncate" title={row.label}>
+                        {row.label}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-bold tabular-nums">{row.requests}</td>
+                      <td className="py-2.5 text-right font-bold tabular-nums text-gray-700">{row.items}</td>
+                    </tr>
+                    {viewingAllDivisions &&
+                      row.byDivision?.map((divisionRow) => (
+                        <tr
+                          key={`${row.purposeKey}:${divisionRow.division}`}
+                          className="border-t border-gray-50 bg-gray-50/60"
+                        >
+                          <td className="py-2 pl-6 pr-3 text-sm text-gray-700">
+                            <span className="text-gray-400 mr-2" aria-hidden="true">
+                              └
+                            </span>
+                            {divisionRow.division}
+                          </td>
+                          <td className="py-2 pr-3 text-right text-sm font-semibold tabular-nums text-gray-700">
+                            {divisionRow.requests}
+                          </td>
+                          <td className="py-2 text-right text-sm font-semibold tabular-nums text-gray-600">
+                            {divisionRow.items}
+                          </td>
+                        </tr>
+                      ))}
+                    {viewingByDivision &&
+                      row.byRequester?.map((requester) => (
+                        <tr
+                          key={`${row.purposeKey}:${requester.email}`}
+                          className="border-t border-gray-50 bg-gray-50/60"
+                        >
+                          <td className="py-2 pl-6 pr-3 text-sm text-gray-700">
+                            <span className="text-gray-400 mr-2" aria-hidden="true">
+                              └
+                            </span>
+                            {requester.name}
+                          </td>
+                          <td className="py-2 pr-3 text-right text-sm font-semibold tabular-nums text-gray-700">
+                            {requester.requests}
+                          </td>
+                          <td className="py-2 text-right text-sm font-semibold tabular-nums text-gray-600">
+                            {requester.items}
+                          </td>
+                        </tr>
+                      ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

@@ -1,10 +1,13 @@
 import { supabase } from "./supabaseClient";
 import { generateMarketingBarcode } from "./marketingBarcode";
 import { getSupabaseErrorMessage } from "./supabaseError";
+import { normalizeRequesterDivision } from "./marketingAuth";
+import { canFulfill, isAdmin, normalizeUserRole } from "./marketingRoles";
 import type {
   MarketingRequest,
   MarketingSession,
   NewMarketingRequestInput,
+  RequesterDivision,
 } from "../types/marketing";
 
 function normalizeRequestPurpose(value: string | undefined | null): string | null {
@@ -18,6 +21,40 @@ async function rememberMarketingRequestPurpose(purpose: string | null): Promise<
     { label: purpose, last_used_at: new Date().toISOString() },
     { onConflict: "label" }
   );
+}
+
+async function resolveRequesterDivisionForSubmit(session: MarketingSession): Promise<RequesterDivision> {
+  const { data, error } = await supabase
+    .from("marketing_users")
+    .select("division")
+    .eq("email", session.email)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (!error && data?.division?.trim()) {
+    return normalizeRequesterDivision(data.division);
+  }
+  return normalizeRequesterDivision(session.division);
+}
+
+export async function refreshMarketingSession(
+  session: MarketingSession
+): Promise<MarketingSession> {
+  const { data, error } = await supabase
+    .from("marketing_users")
+    .select("email, display_name, role, division, active")
+    .eq("email", session.email)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (error || !data) return session;
+
+  return {
+    email: data.email,
+    displayName: data.display_name,
+    role: normalizeUserRole(data.role),
+    division: normalizeRequesterDivision(data.division),
+  };
 }
 
 export async function fetchMarketingRequestPurposes(): Promise<string[]> {
@@ -38,7 +75,7 @@ export async function loginMarketingUser(
   const normalizedEmail = email.trim().toLowerCase();
   const { data, error } = await supabase
     .from("marketing_users")
-    .select("email, display_name, pin, active, role")
+    .select("email, display_name, pin, active, role, division")
     .eq("email", normalizedEmail)
     .eq("active", true)
     .maybeSingle();
@@ -48,10 +85,14 @@ export async function loginMarketingUser(
     throw new Error("Invalid email or PIN. Contact ops to get access.");
   }
 
+  const role = normalizeUserRole(data.role);
+  const division = normalizeRequesterDivision(data.division);
+
   return {
     email: data.email,
     displayName: data.display_name,
-    role: (data.role === "admin" ? "admin" : "marketing") as MarketingSession["role"],
+    role,
+    division,
   };
 }
 
@@ -63,6 +104,7 @@ export async function createMarketingRequest(
 
   const barcode = generateMarketingBarcode();
   const requestPurpose = normalizeRequestPurpose(input.request_purpose);
+  const requesterDivision = await resolveRequesterDivisionForSubmit(session);
 
   const { data: request, error: requestError } = await supabase
     .from("marketing_requests")
@@ -71,6 +113,7 @@ export async function createMarketingRequest(
       status: "pending",
       requested_by_email: session.email,
       requested_by_name: session.displayName,
+      requested_by_division: requesterDivision,
       recipient_name: input.recipient_name.trim(),
       recipient_phone: input.recipient_phone.trim(),
       due_date: input.due_date,
@@ -196,7 +239,7 @@ export async function deleteMarketingRequest(
   session: MarketingSession,
   id: string
 ): Promise<void> {
-  if (session.role === "admin") {
+  if (isAdmin(session)) {
     const { data, error } = await supabase
       .from("marketing_requests")
       .delete()
@@ -229,7 +272,7 @@ export async function deleteMarketingRequestsBulk(
   session: MarketingSession,
   ids: string[]
 ): Promise<number> {
-  if (session.role !== "admin") {
+  if (!isAdmin(session)) {
     throw new Error("Only fulfillment admins can delete completed shipments.");
   }
   if (ids.length === 0) throw new Error("Select at least one order.");
@@ -320,7 +363,6 @@ export async function fetchAllMarketingRequestsForRegistry(): Promise<MarketingR
   const { data, error } = await supabase
     .from("marketing_requests")
     .select("*, marketing_request_items(*)")
-    .neq("status", "cancelled")
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to load shipment registry"));
@@ -346,7 +388,7 @@ async function assertCanEditRegistryField(
   if (data.status === "cancelled") {
     throw new Error("Cancelled requests cannot be edited.");
   }
-  if (session.role !== "admin" && data.requested_by_email !== session.email) {
+  if (!canFulfill(session) && data.requested_by_email !== session.email) {
     throw new Error("You can only edit your own requests.");
   }
 }
@@ -535,7 +577,7 @@ export async function fetchUnseenMarketingOrderCounts(session: MarketingSession)
   total: number;
   byRequestId: Record<string, number>;
 }> {
-  if (session.role !== "admin") {
+  if (!canFulfill(session)) {
     return { total: 0, byRequestId: {} };
   }
 
@@ -575,7 +617,7 @@ export async function markMarketingRequestSeenByAdmin(
   session: MarketingSession,
   requestId: string
 ): Promise<void> {
-  if (session.role !== "admin") return;
+  if (!canFulfill(session)) return;
 
   const { error } = await supabase.from("marketing_request_admin_views").upsert(
     {

@@ -1,6 +1,15 @@
-import type { MarketingSession } from "../types/marketing";
+import type { MarketingSession, RequesterDivision } from "../types/marketing";
+import { normalizeUserRole } from "./marketingRoles";
 
 const SESSION_KEY = "aeris_marketing_session";
+
+export function normalizeRequesterDivision(value: string | null | undefined): RequesterDivision {
+  const trimmed = value?.trim();
+  if (trimmed === "Marketing" || trimmed === "R&D" || trimmed === "Leadership" || trimmed === "Operations") {
+    return trimmed;
+  }
+  return "Other";
+}
 
 export function getMarketingSession(): MarketingSession | null {
   if (typeof window === "undefined") return null;
@@ -12,7 +21,8 @@ export function getMarketingSession(): MarketingSession | null {
     return {
       email: parsed.email,
       displayName: parsed.displayName,
-      role: parsed.role === "admin" ? "admin" : "marketing",
+      role: normalizeUserRole(parsed.role),
+      division: normalizeRequesterDivision(parsed.division),
     };
   } catch {
     return null;

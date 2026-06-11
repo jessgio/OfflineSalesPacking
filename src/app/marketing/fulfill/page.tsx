@@ -28,6 +28,7 @@ import { useAutoRefresh } from "../../../hooks/useAutoRefresh";
 import { useMarketingChatUnread } from "../../../hooks/useMarketingChatUnread";
 import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrders";
 import { getMarketingSession } from "../../../lib/marketingAuth";
+import { canFulfill, isAdmin } from "../../../lib/marketingRoles";
 import type { MarketingSession } from "../../../types/marketing";
 import {
   deleteMarketingRequest,
@@ -131,7 +132,7 @@ export default function MarketingFulfillPage() {
   const handleViewRequest = useCallback(
     (id: string) => {
       setViewingRequestId(id);
-      if (chatSession?.role === "admin") {
+      if (chatSession && canFulfill(chatSession)) {
         void markMarketingRequestSeenByAdmin(chatSession, id).then(() => refreshUnseen());
       }
     },
@@ -139,7 +140,7 @@ export default function MarketingFulfillPage() {
   );
 
   const handleDeleteRequest = async (req: MarketingRequest) => {
-    if (!chatSession || chatSession.role !== "admin") return;
+    if (!chatSession || !isAdmin(chatSession)) return;
     if (req.status !== "shipped") {
       setError("Only completed (shipped) orders can be deleted.");
       return;
@@ -273,7 +274,7 @@ export default function MarketingFulfillPage() {
   };
 
   const handleBatchDeleteSelected = async () => {
-    if (!chatSession || chatSession.role !== "admin") return;
+    if (!chatSession || !isAdmin(chatSession)) return;
     if (selectedIds.length === 0) return;
 
     const selected = completedRequests.filter((req) => selectedIds.includes(req.id));
@@ -790,7 +791,7 @@ export default function MarketingFulfillPage() {
                   ? selectedPendingCount > 0
                     ? `${selectedPendingCount} pending · print labels or mark packed with manifest`
                     : "Batch print shipping labels"
-                  : chatSession?.role === "admin"
+                  : chatSession && isAdmin(chatSession)
                     ? "Export audit CSV or delete completed shipments"
                     : "Export audit CSV with pack/ship details"}
               </p>
@@ -824,7 +825,7 @@ export default function MarketingFulfillPage() {
                 <DashButton variant="primary" size="md" onClick={handleExportSelected}>
                   <Download className="w-4 h-4" /> Export CSV
                 </DashButton>
-                {chatSession?.role === "admin" && (
+                {chatSession && isAdmin(chatSession) && (
                   <DashButton
                     variant="danger"
                     size="md"
@@ -853,7 +854,7 @@ export default function MarketingFulfillPage() {
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
           onDelete={
-            chatSession?.role === "admin" && viewingRequest.status === "shipped"
+            chatSession && isAdmin(chatSession) && viewingRequest.status === "shipped"
               ? () => handleDeleteRequest(viewingRequest)
               : undefined
           }

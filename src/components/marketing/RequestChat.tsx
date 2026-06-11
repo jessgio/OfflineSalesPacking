@@ -10,6 +10,7 @@ import {
   postRequestMessage,
 } from "../../lib/marketingChatDb";
 import { renderMessageWithMentions } from "../../lib/marketingMentions";
+import { normalizeUserRole, roleLabel } from "../../lib/marketingRoles";
 import type {
   MarketingChatParticipant,
   MarketingRequestMessage,
@@ -229,10 +230,12 @@ export function RequestChat({
                     <span
                       className={cx(
                         "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded",
-                        msg.author_role === "admin" ? "bg-slate-200 text-slate-700" : "bg-pink-100 text-pink-800"
+                        msg.author_role === "admin" || msg.author_role === "fulfillment"
+                          ? "bg-slate-200 text-slate-700"
+                          : "bg-pink-100 text-pink-800"
                       )}
                     >
-                      {msg.author_role}
+                      {roleLabel(normalizeUserRole(msg.author_role))}
                     </span>
                     <span className="text-[10px] text-gray-500 ml-auto">
                       {new Date(msg.created_at).toLocaleString(undefined, {

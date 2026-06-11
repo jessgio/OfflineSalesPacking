@@ -18,12 +18,23 @@ export function courierNeedsActualShippingLabel(
   return courier === "Regular" || courier === "Kargo";
 }
 
-export type MarketingUserRole = "marketing" | "admin";
+export type MarketingUserRole = "requester" | "fulfillment" | "admin";
+
+export const REQUESTER_DIVISIONS = [
+  "Marketing",
+  "R&D",
+  "Leadership",
+  "Operations",
+  "Other",
+] as const;
+
+export type RequesterDivision = (typeof REQUESTER_DIVISIONS)[number];
 
 export interface MarketingChatParticipant {
   email: string;
   display_name: string;
   role: MarketingUserRole;
+  division: RequesterDivision;
   handle: string;
 }
 
@@ -32,7 +43,7 @@ export interface MarketingRequestMessage {
   request_id: string;
   author_email: string;
   author_name: string;
-  author_role: MarketingUserRole;
+  author_role: MarketingUserRole | "marketing";
   body: string;
   created_at: string;
 }
@@ -48,6 +59,7 @@ export interface MarketingSession {
   email: string;
   displayName: string;
   role: MarketingUserRole;
+  division: RequesterDivision;
 }
 
 export interface MarketingRequestItem {
@@ -64,6 +76,7 @@ export interface MarketingRequest {
   status: MarketingRequestStatus;
   requested_by_email: string;
   requested_by_name: string;
+  requested_by_division: string | null;
   recipient_name: string;
   recipient_phone: string | null;
   due_date: string | null;

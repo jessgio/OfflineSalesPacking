@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { supabase } from "../../../../lib/supabaseClient";
 import { mentionHandleFromEmail, parseMentionedEmails } from "../../../../lib/marketingMentions";
+import { canFulfill, normalizeUserRole } from "../../../../lib/marketingRoles";
 import type { MarketingChatParticipant } from "../../../../types/marketing";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -43,13 +44,14 @@ export async function POST(request: Request) {
 
     const { data: users } = await supabase
       .from("marketing_users")
-      .select("email, display_name, role")
+      .select("email, display_name, role, division")
       .eq("active", true);
 
     const participants: MarketingChatParticipant[] = (users ?? []).map((u) => ({
       email: u.email,
       display_name: u.display_name,
-      role: u.role,
+      role: normalizeUserRole(u.role),
+      division: (u.division?.trim() || "Other") as MarketingChatParticipant["division"],
       handle: mentionHandleFromEmail(u.email),
     }));
     const roleByEmail = new Map(
@@ -97,7 +99,9 @@ export async function POST(request: Request) {
     for (const to of recipients) {
       const isRequester = to === requesterEmail;
       const wasMentioned = mentionedEmails.includes(to);
-      const openUrl = roleByEmail.get(to) === "admin" ? fulfillUrl : marketingUrl;
+      const openUrl = canFulfill({ email: to, displayName: "", role: roleByEmail.get(to) ?? "requester", division: "Other" })
+        ? fulfillUrl
+        : marketingUrl;
 
       let subject: string;
       let intro: string;
