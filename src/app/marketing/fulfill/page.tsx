@@ -75,6 +75,16 @@ function playBeep(ok: boolean) {
   }
 }
 
+function isOtherEditableFocused(scanInput: HTMLInputElement | null): boolean {
+  const el = document.activeElement;
+  if (!el || !(el instanceof HTMLElement) || el === scanInput) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (el.isContentEditable) return true;
+  if (el.closest("[data-no-refocus]")) return true;
+  return false;
+}
+
 export default function MarketingFulfillPage() {
   const [moduleTab, setModuleTab] = useState<"ACTIVE" | "HISTORY" | "SHIPMENTS">("ACTIVE");
   const [requests, setRequests] = useState<MarketingRequest[]>([]);
@@ -171,12 +181,20 @@ export default function MarketingFulfillPage() {
     setViewingRequestId(null);
   }, [moduleTab]);
 
+  const refocusScan = useCallback(() => {
+    if (moduleTab !== "ACTIVE") return;
+    if (!isOtherEditableFocused(scanRef.current)) {
+      scanRef.current?.focus();
+    }
+  }, [moduleTab]);
+
   useEffect(() => {
-    const focus = () => scanRef.current?.focus();
-    focus();
-    const interval = setInterval(focus, 2000);
-    return () => clearInterval(interval);
-  }, []);
+    if (moduleTab !== "ACTIVE") return;
+    refocusScan();
+    const onClick = () => refocusScan();
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [moduleTab, refocusScan]);
 
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,6 +248,8 @@ export default function MarketingFulfillPage() {
       setScanOk(false);
       setScanMessage(err instanceof Error ? err.message : "Scan failed");
       playBeep(false);
+    } finally {
+      scanRef.current?.focus();
     }
   };
 
