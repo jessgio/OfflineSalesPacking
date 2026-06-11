@@ -97,7 +97,7 @@ async function sendLarkPost(content: LarkPostLine[]): Promise<void> {
 /** Join non-empty lines with a single newline — no blank gaps between fields. */
 export function formatLarkMessage(lines: Array<string | null | undefined | false>): string {
   return lines
-    .map((line) => line?.trim())
+    .map((line) => (typeof line === "string" ? line.trim() : ""))
     .filter((line): line is string => Boolean(line))
     .join("\n");
 }
