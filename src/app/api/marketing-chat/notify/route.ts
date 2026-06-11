@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
     const { data: pkg, error: pkgError } = await supabase
       .from("marketing_requests")
-      .select("barcode, recipient_name, status, requested_by_name, requested_by_email")
+      .select("barcode, recipient_name, status, requested_by_name, requested_by_email, request_purpose")
       .eq("id", message.request_id)
       .maybeSingle();
 
@@ -89,9 +89,12 @@ export async function POST(request: Request) {
     const marketingUrl = `${siteUrl}/marketing`;
     const fulfillUrl = `${siteUrl}/marketing/fulfill`;
 
+    const purposeLine = `Event / purpose: ${pkg.request_purpose?.trim() || "—"}`;
+
     const packageBlock = [
       `Package barcode: ${pkg.barcode}`,
       `Recipient: ${pkg.recipient_name}`,
+      purposeLine,
       `Status: ${pkg.status}`,
       `Requested by: ${pkg.requested_by_name}`,
       "",
@@ -141,7 +144,10 @@ export async function POST(request: Request) {
         const recipientLabels = [...recipients].join(", ");
         await sendLarkText(
           [
-            `📦 Marketing chat — ${pkg.recipient_name} (${pkg.barcode})`,
+            `📦 Marketing chat — ${pkg.barcode}`,
+            `Recipient: ${pkg.recipient_name}`,
+            purposeLine,
+            `Requested by: ${pkg.requested_by_name}`,
             `From: ${message.author_name}`,
             `Notified: ${recipientLabels}`,
             `Status: ${pkg.status}`,

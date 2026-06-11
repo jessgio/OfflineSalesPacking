@@ -260,6 +260,11 @@ export default function MarketingFulfillPage() {
     }
     try {
       await markMarketingRequestShipped(id, packerName);
+      void fetch("/api/marketing-shipped/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId: id }),
+      });
       await loadQueue();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to update status");
