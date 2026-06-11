@@ -28,7 +28,7 @@ import { useAutoRefresh } from "../../../hooks/useAutoRefresh";
 import { useMarketingChatUnread } from "../../../hooks/useMarketingChatUnread";
 import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrders";
 import { getMarketingSession } from "../../../lib/marketingAuth";
-import { canFulfill, isAdmin } from "../../../lib/marketingRoles";
+import { canDeleteMarketingShipment, canFulfill, isAdmin } from "../../../lib/marketingRoles";
 import type { MarketingSession } from "../../../types/marketing";
 import {
   deleteMarketingRequest,
@@ -156,7 +156,7 @@ export default function MarketingFulfillPage() {
   );
 
   const handleDeleteRequest = async (req: MarketingRequest) => {
-    if (!chatSession || !isAdmin(chatSession)) return;
+    if (!chatSession || !canDeleteMarketingShipment(chatSession, req)) return;
 
     const confirmed = window.confirm(
       `Delete shipment for ${req.recipient_name} (${req.barcode})?\n\nThis removes it from the marketing portal and cannot be undone.`
@@ -309,10 +309,12 @@ export default function MarketingFulfillPage() {
   };
 
   const handleBatchDeleteSelected = async (source: MarketingRequest[]) => {
-    if (!chatSession || !isAdmin(chatSession)) return;
+    if (!chatSession) return;
     if (selectedIds.length === 0) return;
 
-    const selected = source.filter((req) => selectedIds.includes(req.id));
+    const selected = source.filter(
+      (req) => selectedIds.includes(req.id) && canDeleteMarketingShipment(chatSession, req)
+    );
     if (selected.length === 0) return;
 
     const confirmed = window.confirm(
@@ -921,7 +923,7 @@ export default function MarketingFulfillPage() {
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
           onDelete={
-            chatSession && isAdmin(chatSession)
+            chatSession && canDeleteMarketingShipment(chatSession, viewingRequest)
               ? () => handleDeleteRequest(viewingRequest)
               : undefined
           }

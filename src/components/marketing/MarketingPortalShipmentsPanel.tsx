@@ -1,27 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { MarketingPortalExportBar } from "./MarketingPortalExportBar";
 import { MarketingPurposeSummary } from "./MarketingPurposeSummary";
-import { MarketingSavedPurposesManager } from "./MarketingSavedPurposesManager";
 import { MarketingShipmentsRegistry } from "./MarketingShipmentsRegistry";
 import {
-  ALL_FILTER,
   buildPortalFilterOptions,
-  defaultPortalFilters,
+  defaultDashboardFilters,
   filterPortalShipmentRequests,
   type PortalExportFilters,
 } from "../../lib/marketingPortalFilters";
 import { downloadMarketingHistoryExport } from "../../lib/marketingExport";
-import { deleteMarketingRequestsBulk, fetchMarketingRequestPurposes } from "../../lib/marketingDb";
-import { isAdmin } from "../../lib/marketingRoles";
+import { deleteMarketingRequestsBulk } from "../../lib/marketingDb";
+import { canDeleteMarketingShipment, isAdmin } from "../../lib/marketingRoles";
 import type { MarketingRequest, MarketingSession } from "../../types/marketing";
-
-function canDeleteShipment(session: MarketingSession, req: MarketingRequest): boolean {
-  if (isAdmin(session)) return true;
-  return req.requested_by_email === session.email && req.status === "pending";
-}
 
 function groupRequestsByPurpose(requests: MarketingRequest[]) {
   const groups = new Map<string, MarketingRequest[]>();
@@ -57,28 +50,10 @@ export function MarketingPortalShipmentsPanel({
   onViewRequest: (id: string) => void;
   onUpdated: () => void;
 }) {
-  const [filters, setFilters] = useState<PortalExportFilters>(() => defaultPortalFilters(session));
-  const [filtersInitialized, setFiltersInitialized] = useState(false);
+  const [filters, setFilters] = useState<PortalExportFilters>(() => defaultDashboardFilters());
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [savedPurposes, setSavedPurposes] = useState<string[]>([]);
-
-  const reloadSavedPurposes = useCallback(() => {
-    fetchMarketingRequestPurposes()
-      .then(setSavedPurposes)
-      .catch(() => setSavedPurposes([]));
-  }, []);
-
-  useEffect(() => {
-    if (filtersInitialized) return;
-    setFilters(defaultPortalFilters(session));
-    setFiltersInitialized(true);
-  }, [session, filtersInitialized]);
-
-  useEffect(() => {
-    reloadSavedPurposes();
-  }, [reloadSavedPurposes]);
 
   const filterOptions = useMemo(() => buildPortalFilterOptions(requests), [requests]);
 
@@ -120,7 +95,7 @@ export function MarketingPortalShipmentsPanel({
   const deletableSelected = useMemo(
     () =>
       filteredRequests.filter(
-        (req) => selectedIds.includes(req.id) && canDeleteShipment(session, req)
+        (req) => selectedIds.includes(req.id) && canDeleteMarketingShipment(session, req)
       ),
     [filteredRequests, selectedIds, session]
   );
@@ -153,14 +128,7 @@ export function MarketingPortalShipmentsPanel({
   };
 
   const clearFilters = () => {
-    setFilters({
-      division: ALL_FILTER,
-      user: ALL_FILTER,
-      purpose: ALL_FILTER,
-      status: ALL_FILTER,
-      dateFrom: "",
-      dateTo: "",
-    });
+    setFilters(defaultDashboardFilters());
   };
 
   if (loading) {
@@ -190,12 +158,6 @@ export function MarketingPortalShipmentsPanel({
         onDeleteSelected={handleBulkDelete}
         deleting={batchDeleting}
         deletableSelectedCount={deletableSelected.length}
-      />
-
-      <MarketingSavedPurposesManager
-        purposes={savedPurposes}
-        session={session}
-        onUpdated={reloadSavedPurposes}
       />
 
       {filteredRequests.length > 0 && (

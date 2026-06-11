@@ -1,4 +1,4 @@
-import type { MarketingSession, MarketingUserRole } from "../types/marketing";
+import type { MarketingRequest, MarketingSession, MarketingUserRole } from "../types/marketing";
 
 /** Legacy DB value — treated as requester in app code. */
 const LEGACY_REQUESTER_ROLE = "marketing";
@@ -25,6 +25,18 @@ export function canFulfill(session: MarketingSession): boolean {
 
 export function isAdmin(session: MarketingSession): boolean {
   return session.role === "admin";
+}
+
+/** Admins may delete pending, packed, or shipped shipments; requesters only their own pending. */
+export function canDeleteMarketingShipment(
+  session: MarketingSession,
+  req: MarketingRequest
+): boolean {
+  if (req.status === "cancelled") return false;
+  if (isAdmin(session)) {
+    return req.status === "pending" || req.status === "packed" || req.status === "shipped";
+  }
+  return req.requested_by_email === session.email && req.status === "pending";
 }
 
 export function roleLabel(role: MarketingUserRole): string {

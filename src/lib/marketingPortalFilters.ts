@@ -1,4 +1,4 @@
-import type { MarketingRequest, MarketingRequestStatus, MarketingSession } from "../types/marketing";
+import type { MarketingRequest, MarketingRequestStatus } from "../types/marketing";
 
 export const ALL_FILTER = "__all__";
 
@@ -31,17 +31,6 @@ export function purposeKeyFromRequest(req: MarketingRequest): string {
 
 export function purposeLabelFromKey(key: string): string {
   return key || "No purpose assigned";
-}
-
-export function defaultPortalFilters(session: MarketingSession): PortalExportFilters {
-  return {
-    division: session.division,
-    user: ALL_FILTER,
-    purpose: ALL_FILTER,
-    status: ALL_FILTER,
-    dateFrom: "",
-    dateTo: "",
-  };
 }
 
 export function defaultDashboardFilters(): PortalExportFilters {
@@ -138,7 +127,7 @@ export function buildPortalShipmentRequests(
       byId.set(req.id, req);
       continue;
     }
-    if (req.status === "pending" || req.status === "packed") {
+    if (req.status === "pending" || req.status === "packed" || req.status === "shipped") {
       byId.set(req.id, req);
     }
   }

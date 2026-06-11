@@ -57,7 +57,7 @@ import { RequestChat } from "../../components/marketing/RequestChat";
 import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import { useMarketingChatUnread } from "../../hooks/useMarketingChatUnread";
 import { buildPortalShipmentRequests } from "../../lib/marketingPortalFilters";
-import { canAccessRequestPortal, isAdmin, roleLabel } from "../../lib/marketingRoles";
+import { canAccessRequestPortal, canDeleteMarketingShipment, isAdmin, roleLabel } from "../../lib/marketingRoles";
 import {
   MARKETING_COURIER_OPTIONS,
   type MarketingCourier,
@@ -354,8 +354,7 @@ export default function MarketingPage() {
 
   const handleDeleteRequest = async (req: MarketingRequest) => {
     if (!session) return;
-    const canDelete =
-      isAdmin(session) || (req.status === "pending" && req.requested_by_email === session.email);
+    const canDelete = canDeleteMarketingShipment(session, req);
     if (!canDelete) return;
 
     const confirmed = window.confirm(
@@ -1172,9 +1171,7 @@ export default function MarketingPage() {
           unreadCount={unreadByRequestId[viewingRequest.id] ?? 0}
           onRead={refreshUnread}
           onDelete={
-            isAdmin(session) ||
-            (viewingRequest.status === "pending" &&
-              viewingRequest.requested_by_email === session.email)
+            canDeleteMarketingShipment(session, viewingRequest)
               ? () => handleDeleteRequest(viewingRequest)
               : undefined
           }
