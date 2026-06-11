@@ -68,6 +68,23 @@ export async function fetchMarketingRequestPurposes(): Promise<string[]> {
   return (data ?? []).map((row) => row.label);
 }
 
+export async function deleteMarketingRequestPurpose(
+  _session: MarketingSession,
+  label: string
+): Promise<void> {
+  const trimmed = label.trim();
+  if (!trimmed) throw new Error("Purpose label is required.");
+
+  const { data, error } = await supabase
+    .from("marketing_request_purposes")
+    .delete()
+    .eq("label", trimmed)
+    .select("id");
+
+  if (error) throw new Error(getSupabaseErrorMessage(error, "Failed to delete purpose"));
+  if (!data?.length) throw new Error("Purpose not found.");
+}
+
 export async function loginMarketingUser(
   email: string,
   pin: string

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, ChevronRight, Loader2 } from "lucide-react";
+import { Check, ChevronRight, Loader2, Trash2 } from "lucide-react";
 import { DashButton, SurfaceCard, cx, fieldInput } from "../dashboard/primitives";
 import {
   updateMarketingActualShippingLabel,
@@ -54,6 +54,7 @@ function RegistryInlineField({
   savedMeta,
   onDraftChange,
   onSave,
+  onClear,
 }: {
   draft: string;
   savedValue: string;
@@ -66,6 +67,7 @@ function RegistryInlineField({
   savedMeta?: ReactNode;
   onDraftChange: (value: string) => void;
   onSave: () => void;
+  onClear?: () => void;
 }) {
   if (!canEdit) {
     if (!savedValue) {
@@ -106,6 +108,19 @@ function RegistryInlineField({
         >
           {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
         </DashButton>
+        {onClear && savedValue && !isDirty && (
+          <DashButton
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 px-2 text-gray-500 hover:text-red-600"
+            disabled={isSaving}
+            onClick={onClear}
+            title="Clear purpose"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </DashButton>
+        )}
       </div>
       {savedMeta && !isDirty && savedMeta}
       {error && <p className="text-[10px] text-red-600">{error}</p>}
@@ -166,9 +181,9 @@ export function MarketingShipmentsRegistry({
     isPortalAdmin &&
     courierNeedsActualShippingLabel(req.preferred_courier);
 
-  const handleSavePurpose = async (req: MarketingRequest) => {
+  const handleSavePurpose = async (req: MarketingRequest, value?: string) => {
     if (!session || !canEditPurpose(req)) return;
-    const draft = purposeDrafts[req.id] ?? "";
+    const draft = value ?? purposeDrafts[req.id] ?? "";
     if (draft === (req.request_purpose ?? "")) return;
 
     const field: RegistryField = "purpose";
@@ -377,6 +392,14 @@ export function MarketingShipmentsRegistry({
                         setPurposeDrafts((prev) => ({ ...prev, [req.id]: value }))
                       }
                       onSave={() => handleSavePurpose(req)}
+                      onClear={
+                        canEditPurpose(req) && req.request_purpose
+                          ? () => {
+                              setPurposeDrafts((prev) => ({ ...prev, [req.id]: "" }));
+                              void handleSavePurpose(req, "");
+                            }
+                          : undefined
+                      }
                     />
                   </td>
                   <td className="px-3 py-3 text-right font-bold text-gray-900 tabular-nums">

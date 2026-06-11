@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { MarketingPortalExportBar } from "./MarketingPortalExportBar";
 import { MarketingPurposeSummary } from "./MarketingPurposeSummary";
+import { MarketingSavedPurposesManager } from "./MarketingSavedPurposesManager";
 import { MarketingShipmentsRegistry } from "./MarketingShipmentsRegistry";
 import {
   ALL_FILTER,
@@ -13,7 +14,7 @@ import {
   type PortalExportFilters,
 } from "../../lib/marketingPortalFilters";
 import { downloadMarketingHistoryExport } from "../../lib/marketingExport";
-import { deleteMarketingRequestsBulk } from "../../lib/marketingDb";
+import { deleteMarketingRequestsBulk, fetchMarketingRequestPurposes } from "../../lib/marketingDb";
 import { isAdmin } from "../../lib/marketingRoles";
 import type { MarketingRequest, MarketingSession } from "../../types/marketing";
 
@@ -61,12 +62,23 @@ export function MarketingPortalShipmentsPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [savedPurposes, setSavedPurposes] = useState<string[]>([]);
+
+  const reloadSavedPurposes = useCallback(() => {
+    fetchMarketingRequestPurposes()
+      .then(setSavedPurposes)
+      .catch(() => setSavedPurposes([]));
+  }, []);
 
   useEffect(() => {
     if (filtersInitialized) return;
     setFilters(defaultPortalFilters(session));
     setFiltersInitialized(true);
   }, [session, filtersInitialized]);
+
+  useEffect(() => {
+    reloadSavedPurposes();
+  }, [reloadSavedPurposes]);
 
   const filterOptions = useMemo(() => buildPortalFilterOptions(requests), [requests]);
 
@@ -178,6 +190,12 @@ export function MarketingPortalShipmentsPanel({
         onDeleteSelected={handleBulkDelete}
         deleting={batchDeleting}
         deletableSelectedCount={deletableSelected.length}
+      />
+
+      <MarketingSavedPurposesManager
+        purposes={savedPurposes}
+        session={session}
+        onUpdated={reloadSavedPurposes}
       />
 
       {filteredRequests.length > 0 && (

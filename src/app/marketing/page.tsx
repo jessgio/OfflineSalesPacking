@@ -50,6 +50,7 @@ import { MarketingChatNotifications } from "../../components/marketing/Marketing
 import { MarketingDashboard } from "../../components/marketing/MarketingDashboard";
 import { MarketingRequestDetailModal } from "../../components/marketing/MarketingRequestDetailModal";
 import { MarketingPortalShipmentsPanel } from "../../components/marketing/MarketingPortalShipmentsPanel";
+import { MarketingSavedPurposesManager } from "../../components/marketing/MarketingSavedPurposesManager";
 import { MarketingSummaryPanel } from "../../components/marketing/MarketingSummaryPanel";
 import { MarketingPurposeSummary } from "../../components/marketing/MarketingPurposeSummary";
 import { RequestChat } from "../../components/marketing/RequestChat";
@@ -201,6 +202,12 @@ export default function MarketingPage() {
     [session]
   );
 
+  const reloadSavedPurposes = useCallback(() => {
+    fetchMarketingRequestPurposes()
+      .then(setSavedPurposes)
+      .catch(() => setSavedPurposes([]));
+  }, []);
+
   const loadDashboardRequests = useCallback(async (silent = false) => {
     if (!silent) setLoadingDashboard(true);
     try {
@@ -217,10 +224,8 @@ export default function MarketingPage() {
     if (!session) return;
     void loadRequests();
     void loadDashboardRequests();
-    fetchMarketingRequestPurposes()
-      .then(setSavedPurposes)
-      .catch(() => setSavedPurposes([]));
-  }, [session, loadRequests, loadDashboardRequests]);
+    reloadSavedPurposes();
+  }, [session, loadRequests, loadDashboardRequests, reloadSavedPurposes]);
 
   useAutoRefresh(() => {
     void loadRequests(true);
@@ -473,9 +478,7 @@ export default function MarketingPage() {
 
       resetForm();
       await loadRequests();
-      fetchMarketingRequestPurposes()
-        .then(setSavedPurposes)
-        .catch(() => setSavedPurposes([]));
+      reloadSavedPurposes();
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : "Failed to submit request");
     } finally {
@@ -845,29 +848,14 @@ export default function MarketingPage() {
               <h3 className="text-xs font-bold uppercase text-gray-700 mb-1">Event / purpose</h3>
               <p className="text-xs text-gray-500 mb-3">Internal only — not printed on shipping labels.</p>
               <div className="grid gap-3">
-                {savedPurposes.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Recent purposes</label>
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) setRequestPurpose(e.target.value);
-                      }}
-                      className={fieldInput}
-                    >
-                      <option value="">Select a saved event or purpose…</option>
-                      {savedPurposes.map((purpose) => (
-                        <option key={purpose} value={purpose}>
-                          {purpose}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <MarketingSavedPurposesManager
+                  purposes={savedPurposes}
+                  session={session}
+                  onUpdated={reloadSavedPurposes}
+                  onSelect={setRequestPurpose}
+                />
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    {savedPurposes.length > 0 ? "Or enter event / purpose" : "Event / purpose"}
-                  </label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Event / purpose</label>
                   <input
                     value={requestPurpose}
                     onChange={(e) => setRequestPurpose(e.target.value)}
