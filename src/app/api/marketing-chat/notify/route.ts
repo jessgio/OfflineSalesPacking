@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import { isLarkConfigured, sendLarkText } from "../../../../lib/larkNotify";
 import { supabase } from "../../../../lib/supabaseClient";
 import { mentionHandleFromEmail, parseMentionedEmails } from "../../../../lib/marketingMentions";
 import { canFulfill, normalizeUserRole } from "../../../../lib/marketingRoles";
@@ -7,13 +8,17 @@ import type { MarketingChatParticipant } from "../../../../types/marketing";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+function hasEmailNotifications(): boolean {
+  return !!process.env.RESEND_API_KEY;
+}
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
 export async function POST(request: Request) {
-  if (!process.env.RESEND_API_KEY) {
-    return NextResponse.json({ error: "Email service not configured" }, { status: 503 });
+  if (!hasEmailNotifications() && !isLarkConfigured()) {
+    return NextResponse.json({ error: "No notification channel configured" }, { status: 503 });
   }
 
   try {
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
     }
 
     if (recipients.size === 0) {
-      return NextResponse.json({ success: true, emailed: 0 });
+      return NextResponse.json({ success: true, emailed: 0, larkSent: false });
     }
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -119,16 +124,40 @@ export async function POST(request: Request) {
 
       const text = [intro, "", packageBlock, "", `Open the dashboard to reply: ${openUrl}`].join("\n");
 
-      await resend.emails.send({
-        from: "Aeris Fulfillment <offlinesalesreports@aerisbeaute.com>",
-        to: [to],
-        subject,
-        text,
-      });
-      emailed += 1;
+      if (hasEmailNotifications()) {
+        await resend.emails.send({
+          from: "Aeris Fulfillment <offlinesalesreports@aerisbeaute.com>",
+          to: [to],
+          subject,
+          text,
+        });
+        emailed += 1;
+      }
     }
 
-    return NextResponse.json({ success: true, emailed });
+    let larkSent = false;
+    if (isLarkConfigured()) {
+      try {
+        const recipientLabels = [...recipients].join(", ");
+        await sendLarkText(
+          [
+            `📦 Marketing chat — ${pkg.recipient_name} (${pkg.barcode})`,
+            `From: ${message.author_name}`,
+            `Notified: ${recipientLabels}`,
+            `Status: ${pkg.status}`,
+            "",
+            message.body,
+            "",
+            `Dashboard: ${marketingUrl}`,
+          ].join("\n")
+        );
+        larkSent = true;
+      } catch (larkErr) {
+        console.error("marketing-chat Lark notify error:", larkErr);
+      }
+    }
+
+    return NextResponse.json({ success: true, emailed, larkSent });
   } catch (err: unknown) {
     console.error("marketing-chat notify error:", err);
     return NextResponse.json(

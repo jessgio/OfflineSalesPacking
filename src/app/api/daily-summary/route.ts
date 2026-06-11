@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isLarkConfigured, sendLarkText } from "../../../lib/larkNotify";
 import { supabase } from "../../../lib/supabaseClient";
 import OpenAI from "openai";
 import { Resend } from "resend";
@@ -67,16 +68,33 @@ export async function GET(request: Request) {
       ],
     });
 
-    const aiSummary = aiResponse.choices[0].message.content;
+    const aiSummary = aiResponse.choices[0].message.content ?? "Report generation failed.";
+    const reportSubject = "📦 Daily Fulfillment Report - Aeris Beaute";
 
-    await resend.emails.send({
-      from: "Aeris AI System <offlinesalesreports@aerisbeaute.com>", 
-      to: process.env.MANAGER_EMAIL as string, 
-      subject: "📦 Daily Fulfillment Report - Aeris Beaute",
-      text: aiSummary || "Report generation failed.",
+    if (process.env.RESEND_API_KEY && process.env.MANAGER_EMAIL) {
+      await resend.emails.send({
+        from: "Aeris AI System <offlinesalesreports@aerisbeaute.com>",
+        to: process.env.MANAGER_EMAIL,
+        subject: reportSubject,
+        text: aiSummary,
+      });
+    }
+
+    let larkSent = false;
+    if (isLarkConfigured()) {
+      try {
+        await sendLarkText([reportSubject, "", aiSummary].join("\n"));
+        larkSent = true;
+      } catch (larkErr) {
+        console.error("daily-summary Lark notify error:", larkErr);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "AI Summary generated.",
+      larkSent,
     });
-
-    return NextResponse.json({ success: true, message: "AI Summary generated and emailed." });
 
   } catch (error: any) {
     console.error(error);
