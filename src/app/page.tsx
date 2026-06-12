@@ -9,6 +9,12 @@ import { mapSociollaLinesToProducts } from "../lib/sociolla/productMapping";
 import { parseSociollaPoText } from "../lib/sociolla/sociollaPoParser";
 import { needsCartonPlanning } from "../lib/sociolla/cartonPlan";
 import { DashButton, SurfaceCard } from "../components/dashboard/primitives";
+import {
+  DASHBOARD_PO_PAGE_SIZE,
+  fetchDashboardPoCount,
+  fetchDashboardPosPage,
+  type DashboardPoRow,
+} from "../lib/purchaseOrdersDb";
 
 const sourceTabBtnBase = "px-4 py-2 text-sm font-bold flex items-center gap-2 rounded-md transition";
 const queueTabBtnBase = "px-6 py-3 font-bold text-lg rounded-t-lg transition-colors border-b-4";
@@ -18,28 +24,64 @@ const bulkActionBtnBase =
   "text-sm font-bold rounded-lg transition disabled:opacity-50 flex items-center gap-2";
 
 export default function ManagerDashboard() {
-  const [pos, setPos] = useState<any[]>([]);
+  const [pos, setPos] = useState<DashboardPoRow[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [selectedPOs, setSelectedPOs] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [activeQueueCount, setActiveQueueCount] = useState(0);
+  const [historyCount, setHistoryCount] = useState(0);
   
   const [activeTab, setActiveTab] = useState<"DFI" | "SOCIOLLA" | "RESELLER">("DFI");
   const [viewMode, setViewMode] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
 
-  useEffect(() => { fetchPOs(); }, []);
+  const totalPages = Math.max(1, Math.ceil(totalCount / DASHBOARD_PO_PAGE_SIZE));
 
-  useEffect(() => { setSelectedPOs([]); }, [viewMode]);
-
-  const fetchPOs = async () => {
-    const { data, error } = await supabase.from("purchase_orders").select("*").order("created_at", { ascending: false });
-    if (!error && data) setPos(data);
+  const refreshTabCounts = async () => {
+    const [active, history] = await Promise.all([
+      fetchDashboardPoCount("ACTIVE"),
+      fetchDashboardPoCount("HISTORY"),
+    ]);
+    setActiveQueueCount(active);
+    setHistoryCount(history);
   };
+
+  const fetchPOs = async (targetPage = page) => {
+    setListLoading(true);
+    try {
+      const { rows, totalCount: count } = await fetchDashboardPosPage(viewMode, targetPage);
+      setPos(rows);
+      setTotalCount(count);
+      await refreshTabCounts();
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setSelectedPOs([]);
+    setPage(1);
+  }, [viewMode]);
+
+  useEffect(() => {
+    setSelectedPOs([]);
+  }, [page]);
+
+  useEffect(() => {
+    void fetchPOs(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, page]);
 
   const handleDeletePO = async (id: string, poNumber: string) => {
     const isConfirmed = window.confirm(`DANGER: Are you absolutely sure you want to completely delete PO ${poNumber}? \n\nNote: If this is a finished order, you can just leave it in the Historical Archive!`);
     if (!isConfirmed) return;
     const { error } = await supabase.from("purchase_orders").delete().eq("id", id);
-    if (!error) { setSelectedPOs((prev: string[]) => prev.filter((poId: string) => poId !== id)); fetchPOs(); }
+    if (!error) {
+      setSelectedPOs((prev: string[]) => prev.filter((poId: string) => poId !== id));
+      void fetchPOs();
+    }
   };
 
   const handleBulkDelete = async () => {
@@ -65,7 +107,12 @@ export default function ManagerDashboard() {
     setUploading(true);
     setMessage({ text: "Aggregating POs...", type: "info" });
     try {
-      const posToMerge = pos.filter((p: any) => selectedPOs.includes(p.id));
+      const { data: posToMerge, error: mergeFetchError } = await supabase
+        .from("purchase_orders")
+        .select("id, po_number, retailer_name, po_date, delivery_date")
+        .in("id", selectedPOs);
+      if (mergeFetchError) throw mergeFetchError;
+      if (!posToMerge?.length) throw new Error("Could not load selected POs for merge.");
       const combinedNumbers = posToMerge.map((p: any) => p.po_number).join(' + ');
       const retailer = posToMerge[0].retailer_name; 
       const poDate = posToMerge[0].po_date;
@@ -427,8 +474,8 @@ export default function ManagerDashboard() {
     }
   };
 
-  const activePOs = pos.filter(p => !["Completed", "Partial Fulfillment"].includes(p.status));
-  const historyPOs = pos.filter(p => ["Completed", "Partial Fulfillment"].includes(p.status));
+  const visiblePOs = pos;
+  const showPagination = totalCount > DASHBOARD_PO_PAGE_SIZE;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-32"> 
@@ -476,20 +523,25 @@ export default function ManagerDashboard() {
 
         <div className="flex gap-4 mb-6 border-b border-gray-200 pb-2">
            <DashButton onClick={() => setViewMode("ACTIVE")} className={`${queueTabBtnBase} rounded-t-lg rounded-b-none ${viewMode === "ACTIVE" ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-800'}`}>
-             <span className="flex items-center gap-2"><Package className="w-5 h-5" /> Active Queue ({activePOs.length})</span>
+             <span className="flex items-center gap-2"><Package className="w-5 h-5" /> Active Queue ({activeQueueCount})</span>
            </DashButton>
            <DashButton onClick={() => setViewMode("HISTORY")} className={`${queueTabBtnBase} rounded-t-lg rounded-b-none ${viewMode === "HISTORY" ? 'border-gray-800 text-gray-900' : 'border-transparent text-gray-600 hover:text-gray-800'}`}>
-             <span className="flex items-center gap-2"><Archive className="w-5 h-5" /> Historical Archive ({historyPOs.length})</span>
+             <span className="flex items-center gap-2"><Archive className="w-5 h-5" /> Historical Archive ({historyCount})</span>
            </DashButton>
         </div>
 
-        <section>          
-          {viewMode === "ACTIVE" ? (
+        <section>
+          {listLoading ? (
+            <div className="flex flex-col items-center justify-center py-16 text-blue-600">
+              <Loader2 className="animate-spin w-8 h-8 mb-3" />
+              <p className="text-sm font-semibold text-gray-600">Loading purchase orders…</p>
+            </div>
+          ) : viewMode === "ACTIVE" ? (
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-             {activePOs.length === 0 ? (
+             {visiblePOs.length === 0 ? (
                <div className={emptyStateClass}>All caught up! Active Queue is empty.</div>
              ) : (
-               activePOs.map((po: any) => {
+               visiblePOs.map((po) => {
                  const isSelected = selectedPOs.includes(po.id);
                  return (
                    <div key={po.id} className={`bg-white border-2 p-6 rounded-xl shadow-sm flex flex-col justify-between transition group relative cursor-default ${isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-gray-200 hover:border-black'}`}>
@@ -527,10 +579,10 @@ export default function ManagerDashboard() {
             </div>
           ) : (
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-             {historyPOs.length === 0 ? (
+             {visiblePOs.length === 0 ? (
                <div className={emptyStateClass}>No history found.</div>
              ) : (
-               historyPOs.map((po: any) => {
+               visiblePOs.map((po) => {
                  const isSelected = selectedPOs.includes(po.id);
                  return (
                    <div key={po.id} className={`bg-gray-50 border-2 p-6 rounded-xl shadow-sm flex flex-col justify-between transition group relative cursor-default ${isSelected ? 'border-red-500 bg-red-50/30' : 'border-gray-200 hover:border-gray-300'}`}>
@@ -558,6 +610,38 @@ export default function ManagerDashboard() {
                  );
                })
              )}
+            </div>
+          )}
+
+          {showPagination && !listLoading && (
+            <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-200 pt-6">
+              <p className="text-sm text-gray-600">
+                Showing {(page - 1) * DASHBOARD_PO_PAGE_SIZE + 1}–
+                {Math.min(page * DASHBOARD_PO_PAGE_SIZE, totalCount)} of {totalCount}
+              </p>
+              <div className="flex items-center gap-2">
+                <DashButton
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  variant="subtle"
+                  size="sm"
+                  className="px-4 py-2"
+                >
+                  Previous
+                </DashButton>
+                <span className="text-sm font-semibold text-gray-700 px-2">
+                  Page {page} of {totalPages}
+                </span>
+                <DashButton
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  variant="subtle"
+                  size="sm"
+                  className="px-4 py-2"
+                >
+                  Next
+                </DashButton>
+              </div>
             </div>
           )}
         </section>

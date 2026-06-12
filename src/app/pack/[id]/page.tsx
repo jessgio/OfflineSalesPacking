@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, use } from "react";
+import { useState, useEffect, useRef, use, useMemo } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 import {
   ArrowLeft,
@@ -21,14 +21,18 @@ import {
 import Link from "next/link";
 import { needsCartonPlanning } from "../../../lib/sociolla/cartonPlan";
 import { DashButton } from "../../../components/dashboard/primitives";
-
-interface BoxContentRow {
-  id: string;
-  po_box_id: string;
-  product_barcode: string;
-  qty: number;
-  scanned_qty: number;
-}
+import {
+  fetchAllPoBoxContentsForPo,
+  fetchPoBoxContentsForBox,
+  fetchPoBoxCount,
+  fetchPoBoxStats,
+  fetchPoBoxesForPo,
+  LARGE_PO_BOX_THRESHOLD,
+  lookupPoBoxByBarcode,
+  type PoBoxContentRow,
+  type PoBoxRow,
+  type PoBoxStats,
+} from "../../../lib/poBoxesDb";
 
 export default function PackStation(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params); 
@@ -36,8 +40,10 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
   const [po, setPo] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
-  const [boxes, setBoxes] = useState<any[]>([]);
-  const [boxContents, setBoxContents] = useState<BoxContentRow[]>([]);
+  const [boxes, setBoxes] = useState<PoBoxRow[]>([]);
+  const [boxContents, setBoxContents] = useState<PoBoxContentRow[]>([]);
+  const [onDemandBoxes, setOnDemandBoxes] = useState(false);
+  const [boxStats, setBoxStats] = useState<PoBoxStats | null>(null);
   const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
   const [barcodeInput, setBarcodeInput] = useState("");
   
@@ -52,32 +58,84 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   const [isClaimed, setIsClaimed] = useState(false);
   const claimInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scanInFlight = useRef(false);
+  const lastScanRef = useRef({ code: "", at: 0 });
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const itemByBarcode = useMemo(
+    () => Object.fromEntries(items.map((i) => [i.barcode, i])),
+    [items]
+  );
+  const securedCountByProductBarcode = useMemo(() => {
+    if (onDemandBoxes && boxStats) return boxStats.scannedByProduct;
+    const counts: Record<string, number> = {};
+    for (const box of boxes) {
+      if (box.is_scanned) {
+        counts[box.product_barcode] = (counts[box.product_barcode] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [boxes, onDemandBoxes, boxStats]);
+
+  const cacheBox = (box: PoBoxRow) => {
+    setBoxes((prev) => (prev.some((b) => b.id === box.id) ? prev : [...prev, box]));
+  };
+
+  const resolveBoxByBarcode = async (barcode: string): Promise<PoBoxRow | null> => {
+    const cached = boxes.find((b) => b.box_barcode === barcode);
+    if (cached) return cached;
+    if (!onDemandBoxes) return null;
+    const box = await lookupPoBoxByBarcode(poId, barcode);
+    if (box) cacheBox(box);
+    return box;
+  };
+
+  const bumpSecuredCount = (productBarcode: string) => {
+    if (!onDemandBoxes) return;
+    setBoxStats((prev) =>
+      prev
+        ? {
+            ...prev,
+            scannedTotal: prev.scannedTotal + 1,
+            scannedByProduct: {
+              ...prev.scannedByProduct,
+              [productBarcode]: (prev.scannedByProduct[productBarcode] ?? 0) + 1,
+            },
+          }
+        : prev
+    );
+  };
 
   useEffect(() => {
     const loadData = async () => {
       const { data: poData } = await supabase.from("purchase_orders").select("*").eq("id", poId).single();
       if (poData) {
         setPo(poData);
-        if (poData.packed_by && poData.packed_by !== 'Unassigned') {
+        if (poData.packed_by && poData.packed_by !== "Unassigned") {
           setPackerName(poData.packed_by);
           setIsClaimed(true);
         }
       }
+
       const { data: itemsData } = await supabase.from("po_items").select("*").eq("po_id", poId).order("id");
       if (itemsData) setItems(itemsData);
 
-      const { data: boxData } = await supabase.from("po_boxes").select("*").eq("po_id", poId);
-      if (boxData) {
+      const boxCount = await fetchPoBoxCount(poId);
+      const useOnDemand = boxCount > LARGE_PO_BOX_THRESHOLD;
+      setOnDemandBoxes(useOnDemand);
+
+      if (useOnDemand) {
+        setBoxes([]);
+        setBoxContents([]);
+        setBoxStats(await fetchPoBoxStats(poId));
+      } else {
+        const boxData = await fetchPoBoxesForPo(poId);
         setBoxes(boxData);
+        setBoxStats(null);
         if (poData?.carton_plan_status === "finalized" && boxData.length > 0) {
-          const { data: contents } = await supabase
-            .from("po_box_contents")
-            .select("id, po_box_id, product_barcode, qty, scanned_qty")
-            .in(
-              "po_box_id",
-              boxData.map((b) => b.id)
-            );
-          if (contents) setBoxContents(contents);
+          setBoxContents(await fetchAllPoBoxContentsForPo(poId));
+        } else {
+          setBoxContents([]);
         }
       }
     };
@@ -104,7 +162,10 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   }, [isClaimed]);
 
   const playSound = (type: "success" | "error" | "stage" | "complete") => {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const ctx = audioCtxRef.current;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
@@ -142,7 +203,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     setIsClaimed(true);
   };
 
-  const cartonPackMode = po?.carton_plan_status === "finalized" && boxContents.length > 0;
+  const cartonPackMode = po?.carton_plan_status === "finalized";
 
   const pendingLinesForBox = (boxId: string) =>
     boxContents.filter((c) => c.po_box_id === boxId && c.scanned_qty < c.qty);
@@ -164,14 +225,32 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     const timestamp = new Date().toISOString();
     const lines = boxContents.filter((c) => c.po_box_id === boxId);
 
-    await supabase
-      .from("po_boxes")
-      .update({ is_scanned: true, packed_at: timestamp, packed_by: packerName })
-      .eq("id", boxId);
+    const updatedItems = [...items];
+    const itemPersistTasks = lines.map((line) => {
+      const idx = updatedItems.findIndex((i) => i.barcode === line.product_barcode);
+      if (idx === -1) return Promise.resolve();
+      const newQty = (updatedItems[idx].scanned_qty ?? 0) + line.qty;
+      const newHistory = [
+        ...(Array.isArray(updatedItems[idx].scan_history) ? updatedItems[idx].scan_history : []),
+        `${timestamp}|${packerName}|carton ${box.carton_number}`,
+      ];
+      updatedItems[idx] = { ...updatedItems[idx], scanned_qty: newQty, scan_history: newHistory, is_short: false };
+      return supabase
+        .from("po_items")
+        .update({ scanned_qty: newQty, scan_history: newHistory, is_short: false })
+        .eq("id", updatedItems[idx].id);
+    });
 
-    for (const line of lines) {
-      await supabase.from("po_box_contents").update({ scanned_qty: line.qty }).eq("id", line.id);
-    }
+    await Promise.all([
+      supabase
+        .from("po_boxes")
+        .update({ is_scanned: true, packed_at: timestamp, packed_by: packerName })
+        .eq("id", boxId),
+      ...lines.map((line) =>
+        supabase.from("po_box_contents").update({ scanned_qty: line.qty }).eq("id", line.id)
+      ),
+      ...itemPersistTasks,
+    ]);
 
     const updatedBoxes = boxes.map((b) =>
       b.id === boxId ? { ...b, is_scanned: true, packed_at: timestamp, packed_by: packerName } : b
@@ -182,24 +261,12 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       c.po_box_id === boxId ? { ...c, scanned_qty: c.qty } : c
     );
     setBoxContents(updatedContents);
-
-    const updatedItems = [...items];
-    for (const line of lines) {
-      const idx = updatedItems.findIndex((i) => i.barcode === line.product_barcode);
-      if (idx === -1) continue;
-      const newQty = (updatedItems[idx].scanned_qty ?? 0) + line.qty;
-      const newHistory = [
-        ...(Array.isArray(updatedItems[idx].scan_history) ? updatedItems[idx].scan_history : []),
-        `${timestamp}|${packerName}|carton ${box.carton_number}`,
-      ];
-      updatedItems[idx] = { ...updatedItems[idx], scanned_qty: newQty, scan_history: newHistory, is_short: false };
-      await supabase
-        .from("po_items")
-        .update({ scanned_qty: newQty, scan_history: newHistory, is_short: false })
-        .eq("id", updatedItems[idx].id);
-    }
     setItems(updatedItems);
     setActiveBoxId(null);
+
+    if (onDemandBoxes && box) {
+      bumpSecuredCount(box.product_barcode);
+    }
 
     if (po && po.status === "Not Started") {
       await supabase.from("purchase_orders").update({ status: "Packing" }).eq("id", po.id);
@@ -208,8 +275,8 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   };
 
   const processCartonScan = async (scannedCode: string) => {
-    const isProductBarcode = items.some((i) => i.barcode === scannedCode);
-    const matchedBox = boxes.find((b) => b.box_barcode === scannedCode);
+    const isProductBarcode = !!itemByBarcode[scannedCode];
+    const matchedBox = isProductBarcode ? null : await resolveBoxByBarcode(scannedCode);
 
     if (matchedBox) {
       if (matchedBox.is_scanned) {
@@ -219,6 +286,10 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           type: "error",
         });
         return;
+      }
+
+      if (onDemandBoxes) {
+        setBoxContents(await fetchPoBoxContentsForBox(matchedBox.id));
       }
 
       setActiveBoxId(matchedBox.id);
@@ -291,8 +362,14 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   };
 
   const processScanCode = async (scannedCode: string) => {
-    if (!scannedCode) return;
+    if (!scannedCode || scanInFlight.current) return;
 
+    const now = Date.now();
+    if (lastScanRef.current.code === scannedCode && now - lastScanRef.current.at < 500) return;
+    lastScanRef.current = { code: scannedCode, at: now };
+
+    scanInFlight.current = true;
+    try {
     if (cartonPackMode) {
       await processCartonScan(scannedCode);
       return;
@@ -304,8 +381,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       return;
     }
 
-    const isProductBarcode = items.some(i => i.barcode === scannedCode);
-    const isBoxLabel = boxes.some(b => b.box_barcode === scannedCode);
+    const isProductBarcode = !!itemByBarcode[scannedCode];
+    const matchedBox = isProductBarcode ? null : await resolveBoxByBarcode(scannedCode);
+    const isBoxLabel = !!matchedBox;
 
     if (!isProductBarcode && !isBoxLabel) {
       playSound("error");
@@ -315,8 +393,8 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     }
 
     if (isProductBarcode && !stagedProductBarcode) {
-      const item = items.find(i => i.barcode === scannedCode);
-      const currentlySecuredForThisItem = boxes.filter(b => b.product_barcode === item.barcode && b.is_scanned).length;
+      const item = itemByBarcode[scannedCode];
+      const currentlySecuredForThisItem = securedCountByProductBarcode[item.barcode] ?? 0;
       
       if (currentlySecuredForThisItem >= item.inner_boxes || item.is_short) {
         playSound("error");
@@ -330,8 +408,9 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       return;
     }
 
-    if (stagedProductBarcode && isBoxLabel) {
-      const boxMatchesProduct = boxes.find(b => b.box_barcode === scannedCode && b.product_barcode === stagedProductBarcode);
+    if (stagedProductBarcode && isBoxLabel && matchedBox) {
+      const boxMatchesProduct =
+        matchedBox.product_barcode === stagedProductBarcode ? matchedBox : undefined;
       
       if (!boxMatchesProduct) {
         playSound("error");
@@ -348,13 +427,23 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
       }
 
       const timestamp = new Date().toISOString();
-      const updatedBoxes = boxes.map(b => b.id === boxMatchesProduct.id ? { ...b, is_scanned: true, packed_at: timestamp, packed_by: packerName } : b);
-      setBoxes(updatedBoxes);
+      const sealedBox: PoBoxRow = {
+        ...boxMatchesProduct,
+        is_scanned: true,
+        packed_at: timestamp,
+        packed_by: packerName,
+      };
+      if (onDemandBoxes) {
+        cacheBox(sealedBox);
+      } else {
+        setBoxes((prev) => prev.map((b) => (b.id === sealedBox.id ? sealedBox : b)));
+      }
+      bumpSecuredCount(sealedBox.product_barcode);
       await supabase.from("po_boxes").update({ is_scanned: true, packed_at: timestamp, packed_by: packerName }).eq("id", boxMatchesProduct.id);
 
       const itemIndex = items.findIndex(i => i.barcode === stagedProductBarcode);
       const item = items[itemIndex];
-      const newBoxCount = updatedBoxes.filter(b => b.product_barcode === item.barcode && b.is_scanned).length;
+      const newBoxCount = (securedCountByProductBarcode[item.barcode] ?? 0) + 1;
       const isItemFullyPacked = newBoxCount >= item.inner_boxes;
       
       const unitsPerBox = item.inner_boxes > 0 ? (item.target_qty / item.inner_boxes) : 0;
@@ -387,8 +476,8 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     }
 
     if (stagedProductBarcode && isProductBarcode) {
-       const newItem = items.find(i => i.barcode === scannedCode);
-       const currentlySecured = boxes.filter(b => b.product_barcode === newItem.barcode && b.is_scanned).length;
+       const newItem = itemByBarcode[scannedCode];
+       const currentlySecured = securedCountByProductBarcode[newItem.barcode] ?? 0;
        if (currentlySecured >= newItem.inner_boxes || newItem.is_short) {
           playSound("error");
           setFeedback({ message: `⚠️ ALREADY DONE: Target reached or marked short for [${newItem.product_name}]`, type: "error" });
@@ -400,25 +489,27 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
        setStagedProductBarcode(scannedCode);
        setFeedback({ message: `🔵 CHANGED PRODUCT: [${newItem.product_name}]. Now scan its LPN Box Label.`, type: "blue" });
     }
+    } finally {
+      scanInFlight.current = false;
+      inputRef.current?.focus();
+    }
   };
 
-  const handleHiddenScan = (e: React.FormEvent) => {
+  const handleHiddenScan = async (e: React.FormEvent) => {
     e.preventDefault();
-    processScanCode(barcodeInput.trim());
-    setBarcodeInput(""); 
+    const code = barcodeInput.trim();
+    setBarcodeInput("");
+    await processScanCode(code);
   };
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
       const possibleBarcode = searchQuery.trim();
-      const isProduct = items.some(i => i.barcode === possibleBarcode);
-      const isBox = boxes.some(b => b.box_barcode === possibleBarcode);
-      
-      if (possibleBarcode.length > 5 && (isProduct || isBox)) {
-        processScanCode(possibleBarcode);
+      if (possibleBarcode.length > 5) {
+        void processScanCode(possibleBarcode);
         setSearchQuery("");
-        inputRef.current?.focus(); 
+        inputRef.current?.focus();
       }
     }
   };
@@ -460,13 +551,16 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   let effectiveCartonScanned = 0;
 
   if (cartonPackMode) {
-    effectiveCartonTarget = boxes.length;
-    effectiveCartonScanned = boxes.filter((b) => b.is_scanned).length;
+    if (onDemandBoxes && boxStats) {
+      effectiveCartonTarget = boxStats.totalBoxes;
+      effectiveCartonScanned = boxStats.scannedTotal;
+    } else {
+      effectiveCartonTarget = boxes.length;
+      effectiveCartonScanned = boxes.filter((b) => b.is_scanned).length;
+    }
   } else {
     items.forEach((item) => {
-      const securedForThisItem = boxes.filter(
-        (b) => b.product_barcode === item.barcode && b.is_scanned
-      ).length;
+      const securedForThisItem = securedCountByProductBarcode[item.barcode] ?? 0;
       if (item.is_short) {
         effectiveCartonTarget += securedForThisItem;
       } else {
@@ -533,8 +627,8 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     if (a.barcode === stagedProductBarcode) return -1;
     if (b.barcode === stagedProductBarcode) return 1;
 
-    const aSecured = boxes.filter(box => box.product_barcode === a.barcode && box.is_scanned).length;
-    const bSecured = boxes.filter(box => box.product_barcode === b.barcode && box.is_scanned).length;
+    const aSecured = securedCountByProductBarcode[a.barcode] ?? 0;
+    const bSecured = securedCountByProductBarcode[b.barcode] ?? 0;
     const aDone = aSecured >= a.inner_boxes || a.is_short;
     const bDone = bSecured >= b.inner_boxes || b.is_short;
 
@@ -642,7 +736,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
                   const requiredCartons = cartonPackMode ? item.target_qty : item.inner_boxes;
                   const securedCartons = cartonPackMode
                     ? item.scanned_qty ?? 0
-                    : boxes.filter((b) => b.product_barcode === item.barcode && b.is_scanned).length;
+                    : securedCountByProductBarcode[item.barcode] ?? 0;
                   const isComplete = cartonPackMode
                     ? securedCartons >= item.target_qty
                     : securedCartons >= requiredCartons;

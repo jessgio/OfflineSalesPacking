@@ -98,6 +98,8 @@ export default function MarketingFulfillPage() {
   const [scanMessage, setScanMessage] = useState("");
   const [scanOk, setScanOk] = useState<boolean | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
+  const scanInFlight = useRef(false);
+  const lastScanRef = useRef({ code: "", at: 0 });
   const [chatSession, setChatSession] = useState<MarketingSession | null>(null);
   const [batchPacking, setBatchPacking] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -202,7 +204,11 @@ export default function MarketingFulfillPage() {
     e.preventDefault();
     const code = scanValue.trim().toUpperCase();
     setScanValue("");
-    if (!code) return;
+    if (!code || scanInFlight.current) return;
+
+    const now = Date.now();
+    if (lastScanRef.current.code === code && now - lastScanRef.current.at < 500) return;
+    lastScanRef.current = { code, at: now };
 
     if (!isMarketingBarcode(code)) {
       setScanOk(false);
@@ -218,6 +224,7 @@ export default function MarketingFulfillPage() {
       return;
     }
 
+    scanInFlight.current = true;
     try {
       const req = await fetchMarketingRequestByBarcode(code);
       if (!req) {
@@ -241,16 +248,21 @@ export default function MarketingFulfillPage() {
         return;
       }
 
+      const packedBy = packerName.trim().toUpperCase();
+      const packedAt = new Date().toISOString();
       await markMarketingRequestPacked(req.id, packerName);
+      const packedReq: MarketingRequest = { ...req, status: "packed", packed_by: packedBy, packed_at: packedAt };
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      setAllRequests((prev) => prev.map((r) => (r.id === req.id ? packedReq : r)));
       setScanOk(true);
       setScanMessage(`Packed ${code} for ${req.recipient_name}. Print label and affix to package.`);
       playBeep(true);
-      await loadQueue();
     } catch (err: unknown) {
       setScanOk(false);
       setScanMessage(err instanceof Error ? err.message : "Scan failed");
       playBeep(false);
     } finally {
+      scanInFlight.current = false;
       scanRef.current?.focus();
     }
   };

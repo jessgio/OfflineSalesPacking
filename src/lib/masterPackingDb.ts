@@ -132,6 +132,79 @@ export async function markMasterPackCompletedForPos(poIds: string[], completedBy
   if (updateError) throw updateError;
 }
 
+export async function revertMasterPackCompletionForPos(poIds: string[]): Promise<void> {
+  if (poIds.length === 0) throw new Error("Select at least one PO.");
+
+  const { data: poStates, error: poStateError } = await supabase
+    .from("purchase_orders")
+    .select("id, po_number, master_pack_status, master_pack_session_id")
+    .in("id", poIds);
+  if (poStateError) throw poStateError;
+
+  const notCompleted = (poStates ?? []).filter(
+    (po: { master_pack_status: string }) => po.master_pack_status !== "completed"
+  );
+  if (notCompleted.length > 0) {
+    throw new Error(
+      `These POs are not master-completed: ${notCompleted
+        .map((po: { po_number: string }) => po.po_number)
+        .join(", ")}`
+    );
+  }
+
+  const innerOnlyIds: string[] = [];
+  const sessionGroups = new Map<string, string[]>();
+
+  for (const po of poStates ?? []) {
+    if (!po.master_pack_session_id) {
+      innerOnlyIds.push(po.id);
+    } else {
+      const existing = sessionGroups.get(po.master_pack_session_id) ?? [];
+      existing.push(po.id);
+      sessionGroups.set(po.master_pack_session_id, existing);
+    }
+  }
+
+  if (innerOnlyIds.length > 0) {
+    const { error: resetError } = await supabase
+      .from("purchase_orders")
+      .update({
+        master_pack_status: "not_started",
+        master_pack_session_id: null,
+        master_pack_completed_at: null,
+        master_pack_completed_by: null,
+      })
+      .in("id", innerOnlyIds);
+    if (resetError) throw resetError;
+  }
+
+  await Promise.all(
+    [...sessionGroups].map(async ([sessionId, sessionPoIds]) => {
+      const { error: sessionError } = await supabase
+        .from("packing_sessions")
+        .update({
+          status: "packing",
+          packed_by: null,
+          completed_at: null,
+        })
+        .eq("id", sessionId)
+        .eq("status", "completed");
+      if (sessionError) throw sessionError;
+
+      const { error: poError } = await supabase
+        .from("purchase_orders")
+        .update({
+          master_pack_status: "in_progress",
+          master_pack_session_id: sessionId,
+          master_pack_completed_at: null,
+          master_pack_completed_by: null,
+        })
+        .in("id", sessionPoIds);
+      if (poError) throw poError;
+    })
+  );
+}
+
 export async function fetchSession(sessionId: string): Promise<PackingSession | null> {
   const { data, error } = await supabase.from("packing_sessions").select("*").eq("id", sessionId).single();
   if (error) return null;
@@ -168,8 +241,14 @@ export async function fetchMasterBoxes(sessionId: string): Promise<MasterBox[]> 
 }
 
 export async function createMasterBox(session: PackingSession): Promise<MasterBox> {
-  const existing = await fetchMasterBoxes(session.id);
-  const nextNumber = existing.length > 0 ? Math.max(...existing.map((b) => b.box_number)) + 1 : 1;
+  const { data: lastBox } = await supabase
+    .from("po_master_boxes")
+    .select("box_number")
+    .eq("session_id", session.id)
+    .order("box_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextNumber = (lastBox?.box_number ?? 0) + 1;
   const master_barcode = generateMasterBarcode(session.session_code, nextNumber);
 
   const { data, error } = await supabase
@@ -263,18 +342,15 @@ export async function fetchMasterBoxContents(masterBoxId: string): Promise<Maste
   const poIds = [...new Set(rows.map((c) => c.po_id))];
   const poBoxIds = rows.map((c) => c.po_box_id);
 
-  const { data: pos } = await supabase.from("purchase_orders").select("id, po_number").in("id", poIds);
+  const [{ data: pos }, { data: boxes }, { data: items }] = await Promise.all([
+    supabase.from("purchase_orders").select("id, po_number").in("id", poIds),
+    supabase.from("po_boxes").select("id, product_barcode").in("id", poBoxIds),
+    supabase.from("po_items").select("po_id, barcode, product_name").in("po_id", poIds),
+  ]);
   const poNumberById = Object.fromEntries((pos ?? []).map((p: { id: string; po_number: string }) => [p.id, p.po_number]));
-
-  const { data: boxes } = await supabase.from("po_boxes").select("id, product_barcode").in("id", poBoxIds);
   const productBarcodeByBoxId = Object.fromEntries(
     (boxes ?? []).map((b: { id: string; product_barcode: string }) => [b.id, b.product_barcode])
   );
-
-  const { data: items } = await supabase
-    .from("po_items")
-    .select("po_id, barcode, product_name")
-    .in("po_id", poIds);
 
   const productNameByKey: Record<string, string> = {};
   (items ?? []).forEach((it: { po_id: string; barcode: string; product_name: string }) => {
@@ -336,26 +412,29 @@ export async function fetchSessionInnerCoverage(sessionId: string): Promise<{
 
 export async function findInnerBoxInSession(
   sessionId: string,
-  innerBarcode: string
+  innerBarcode: string,
+  cachedPoIds?: string[]
 ): Promise<(PoBoxRow & { po_number: string; product_name: string }) | null> {
-  const poIds = await fetchSessionPoIds(sessionId);
+  const poIds = cachedPoIds ?? (await fetchSessionPoIds(sessionId));
   if (poIds.length === 0) return null;
 
   const { data: box, error } = await supabase
     .from("po_boxes")
-    .select("*")
+    .select("id, po_id, box_barcode, product_barcode, carton_number, total_cartons, is_scanned")
     .eq("box_barcode", innerBarcode.trim())
     .in("po_id", poIds)
     .maybeSingle();
   if (error || !box) return null;
 
-  const { data: po } = await supabase.from("purchase_orders").select("po_number").eq("id", box.po_id).single();
-  const { data: item } = await supabase
-    .from("po_items")
-    .select("product_name")
-    .eq("po_id", box.po_id)
-    .eq("barcode", box.product_barcode)
-    .maybeSingle();
+  const [{ data: po }, { data: item }] = await Promise.all([
+    supabase.from("purchase_orders").select("po_number").eq("id", box.po_id).single(),
+    supabase
+      .from("po_items")
+      .select("product_name")
+      .eq("po_id", box.po_id)
+      .eq("barcode", box.product_barcode)
+      .maybeSingle(),
+  ]);
 
   return {
     ...(box as PoBoxRow),
@@ -437,7 +516,7 @@ export async function completePackingSession(sessionId: string, packedBy: string
     .eq("id", sessionId);
 
   const poIds = await fetchSessionPoIds(sessionId);
-  const poCompletionLabel = await buildPoCompletionLabel(sessionId, packedBy);
+  const poCompletionLabel = await buildPoCompletionLabel(sessionId, packedBy, poIds);
   if (poIds.length > 0) {
     const { error: poCompleteError } = await supabase
       .from("purchase_orders")
@@ -452,8 +531,13 @@ export async function completePackingSession(sessionId: string, packedBy: string
   }
 
   const openBoxes = await fetchMasterBoxes(sessionId);
-  for (const box of openBoxes.filter((b) => b.status === "open")) {
-    await sealMasterBox(box.id);
+  const openBoxIds = openBoxes.filter((b) => b.status === "open").map((b) => b.id);
+  if (openBoxIds.length > 0) {
+    const { error: sealError } = await supabase
+      .from("po_master_boxes")
+      .update({ status: "sealed", sealed_at: completedAt })
+      .in("id", openBoxIds);
+    if (sealError) throw sealError;
   }
 }
 
@@ -574,14 +658,18 @@ export async function buildManifest(sessionId: string): Promise<{
   };
 }
 
-async function buildPoCompletionLabel(sessionId: string, packedBy: string): Promise<string> {
-  const poIds = await fetchSessionPoIds(sessionId);
-  if (poIds.length === 0) return packedBy;
+async function buildPoCompletionLabel(
+  sessionId: string,
+  packedBy: string,
+  poIds?: string[]
+): Promise<string> {
+  const ids = poIds ?? (await fetchSessionPoIds(sessionId));
+  if (ids.length === 0) return packedBy;
 
   const { data: poBoxes } = await supabase
     .from("po_boxes")
     .select("id, po_id")
-    .in("po_id", poIds);
+    .in("po_id", ids);
   const allPoBoxIds = (poBoxes ?? []).map((b: { id: string }) => b.id);
 
   if (allPoBoxIds.length === 0) {

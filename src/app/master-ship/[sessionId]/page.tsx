@@ -11,6 +11,7 @@ import {
   Plus,
   FileText,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
 import {
   AlertBanner,
@@ -35,6 +36,7 @@ import {
   fetchSession,
   fetchSessionPos,
   reopenMasterBox,
+  revertMasterPackCompletionForPos,
   sealMasterBox,
 } from "../../../lib/masterPackingDb";
 import { getSupabaseErrorMessage } from "../../../lib/supabaseError";
@@ -54,15 +56,15 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const reload = async () => {
-    setLoading(true);
+  const reload = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
     try {
-      const [s, poList, boxes] = await Promise.all([
+      const [s, poList, boxes, coverage] = await Promise.all([
         fetchSession(sessionId),
         fetchSessionPos(sessionId),
         fetchMasterBoxes(sessionId),
+        fetchSessionInnerCoverage(sessionId),
       ]);
-      const coverage = await fetchSessionInnerCoverage(sessionId);
       setSession(s);
       setPos(poList);
       setMasterBoxes(boxes);
@@ -70,7 +72,7 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
     } catch (e: unknown) {
       setError(getSupabaseErrorMessage(e, "Load failed"));
     } finally {
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   };
 
@@ -84,7 +86,7 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
     setError("");
     try {
       await createMasterBox(session);
-      await reload();
+      await reload({ silent: true });
     } catch (e: unknown) {
       setError(getSupabaseErrorMessage(e, "Could not create master box"));
     } finally {
@@ -96,7 +98,7 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
     setBusy(true);
     try {
       await sealMasterBox(boxId);
-      await reload();
+      await reload({ silent: true });
     } finally {
       setBusy(false);
     }
@@ -111,7 +113,7 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
     setError("");
     try {
       await deleteMasterBox(box.id);
-      await reload();
+      await reload({ silent: true });
     } catch (e: unknown) {
       setError(getSupabaseErrorMessage(e, "Failed to delete master box"));
     } finally {
@@ -123,7 +125,7 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
     setBusy(true);
     try {
       await reopenMasterBox(boxId);
-      await reload();
+      await reload({ silent: true });
     } catch (e: unknown) {
       setError(getSupabaseErrorMessage(e, "Failed to reopen master box"));
     } finally {
@@ -142,6 +144,24 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
       window.location.href = "/master-ship";
     } catch (e: unknown) {
       setError(getSupabaseErrorMessage(e, "Failed to delete session"));
+      setBusy(false);
+    }
+  };
+
+  const handleReopenSession = async () => {
+    const ok = window.confirm(
+      "Reopen this packing session?\n\nAll POs in this session will return to in-progress master packing. You can continue scanning and re-seal master boxes."
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError("");
+    try {
+      const poIds = pos.map((po) => po.id);
+      await revertMasterPackCompletionForPos(poIds);
+      await reload({ silent: true });
+    } catch (e: unknown) {
+      setError(getSupabaseErrorMessage(e, "Failed to reopen session"));
+    } finally {
       setBusy(false);
     }
   };
@@ -339,7 +359,19 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
           )}
         </SectionCard>
 
-        {!isCompleted && (
+        {isCompleted ? (
+          <section className="rounded-2xl border-2 border-amber-100 bg-amber-50/60 p-5 sm:p-6">
+            <h3 className="font-bold text-amber-950 text-base">Need to undo?</h3>
+            <p className="mt-1 text-sm text-amber-900 leading-relaxed max-w-xl">
+              Reopen this session if packing was ended by mistake. POs return to the active queue and you can
+              continue scanning.
+            </p>
+            <BtnSecondary onClick={handleReopenSession} disabled={busy} className="mt-4 border-amber-300 text-amber-900">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+              Reopen packing session
+            </BtnSecondary>
+          </section>
+        ) : (
           <section className="rounded-2xl border-2 border-red-100 bg-red-50/60 p-5 sm:p-6">
             <h3 className="font-bold text-red-950 text-base">Start over?</h3>
             <p className="mt-1 text-sm text-red-800 leading-relaxed max-w-xl">

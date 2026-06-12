@@ -123,45 +123,53 @@ export async function finalizeCartonPlan(
 
   const totalCartons = plan.length;
   const boxCounts = innerBoxCountByBarcode(plan);
+  const INSERT_CHUNK = 500;
 
-  for (let i = 0; i < plan.length; i++) {
-    const carton = plan[i];
-    const boxBarcode = sociollaLpnBarcode(poNumber, i + 1);
+  const boxRows = plan.map((carton, i) => ({
+    po_id: poId,
+    product_barcode: carton.lines[0]?.barcode ?? "",
+    box_barcode: sociollaLpnBarcode(poNumber, i + 1),
+    carton_number: i + 1,
+    total_cartons: totalCartons,
+    is_scanned: false,
+  }));
 
-    const { data: box, error: boxError } = await supabase
-      .from("po_boxes")
-      .insert({
-        po_id: poId,
-        product_barcode: carton.lines[0]?.barcode ?? "",
-        box_barcode: boxBarcode,
-        carton_number: i + 1,
-        total_cartons: totalCartons,
-        is_scanned: false,
-      })
-      .select("id")
-      .single();
+  const insertedBoxes: { id: string }[] = [];
+  for (let i = 0; i < boxRows.length; i += INSERT_CHUNK) {
+    const chunk = boxRows.slice(i, i + INSERT_CHUNK);
+    const { data, error: boxError } = await supabase.from("po_boxes").insert(chunk).select("id");
+    if (boxError || !data?.length) {
+      throw new Error(boxError?.message ?? "Failed to create inner box labels.");
+    }
+    insertedBoxes.push(...data);
+  }
 
-    if (boxError || !box) throw new Error(boxError?.message ?? "Failed to create inner box label.");
+  const contentRows = plan.flatMap((carton, i) =>
+    carton.lines.map((line) => ({
+      po_box_id: insertedBoxes[i].id,
+      product_barcode: line.barcode,
+      qty: line.qty,
+      scanned_qty: 0,
+    }))
+  );
 
-    const { error: contentsError } = await supabase.from("po_box_contents").insert(
-      carton.lines.map((line) => ({
-        po_box_id: box.id,
-        product_barcode: line.barcode,
-        qty: line.qty,
-        scanned_qty: 0,
-      }))
-    );
-
+  for (let i = 0; i < contentRows.length; i += INSERT_CHUNK) {
+    const chunk = contentRows.slice(i, i + INSERT_CHUNK);
+    const { error: contentsError } = await supabase.from("po_box_contents").insert(chunk);
     if (contentsError) throw new Error(contentsError.message);
   }
 
-  for (const item of items) {
-    const { error } = await supabase
-      .from("po_items")
-      .update({ inner_boxes: boxCounts[item.barcode] ?? 0 })
-      .eq("id", item.id);
-    if (error) throw new Error(error.message);
-  }
+  await Promise.all(
+    items.map((item) =>
+      supabase
+        .from("po_items")
+        .update({ inner_boxes: boxCounts[item.barcode] ?? 0 })
+        .eq("id", item.id)
+        .then(({ error }) => {
+          if (error) throw new Error(error.message);
+        })
+    )
+  );
 
   const { error: poError } = await supabase
     .from("purchase_orders")

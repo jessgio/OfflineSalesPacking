@@ -48,6 +48,9 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sessionPoIdsRef = useRef<string[]>([]);
+  const lastScanRef = useRef({ code: "", at: 0 });
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const loadContents = useCallback(async (masterId: string | null) => {
     if (!masterId) {
@@ -65,6 +68,7 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
     ]);
     setSession(s);
     setPos(poList);
+    sessionPoIdsRef.current = poList.map((po) => po.id);
     setMasterBoxes(boxes);
     if (activeMaster) {
       const updated = boxes.find((b) => b.id === activeMaster.id);
@@ -105,8 +109,11 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
 
   const playSound = (type: "success" | "error" | "stage") => {
     try {
-      const ctx = new (window.AudioContext ||
-        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext!)();
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext ||
+          (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext!)();
+      }
+      const ctx = audioCtxRef.current;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -158,7 +165,7 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
     try {
       await removeInnerFromMaster(content.id);
       playSound("stage");
-      await loadContents(activeMaster.id);
+      setActiveContents((prev) => prev.filter((c) => c.id !== content.id));
       setScanFeedback("success", "Inner removed", `${content.inner_barcode} is no longer in this master.`);
     } catch (e: unknown) {
       playSound("error");
@@ -195,7 +202,11 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
     e.preventDefault();
     const code = scanInput.trim().toUpperCase();
     setScanInput("");
-    if (!code || !session) return;
+    if (!code || !session || busy) return;
+
+    const now = Date.now();
+    if (lastScanRef.current.code === code && now - lastScanRef.current.at < 500) return;
+    lastScanRef.current = { code, at: now };
 
     if (session.status === "completed") {
       playSound("error");
@@ -203,64 +214,64 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
       return;
     }
 
-    if (isMasterBarcode(code)) {
-      const master = await findMasterBoxInSession(sessionId, code);
-      if (!master) {
-        playSound("error");
-        setScanFeedback("error", "Unknown master", "This barcode does not belong to this session.");
+    setBusy(true);
+    try {
+      if (isMasterBarcode(code)) {
+        const master = await findMasterBoxInSession(sessionId, code);
+        if (!master) {
+          playSound("error");
+          setScanFeedback("error", "Unknown master", "This barcode does not belong to this session.");
+          return;
+        }
+        await activateMaster(master);
         return;
       }
-      await activateMaster(master);
-      return;
-    }
 
-    if (!activeMaster) {
-      playSound("error");
-      setScanFeedback("error", "No master selected", "Scan a master box barcode (starts with MB) first.");
-      return;
-    }
+      if (!activeMaster) {
+        playSound("error");
+        setScanFeedback("error", "No master selected", "Scan a master box barcode (starts with MB) first.");
+        return;
+      }
 
-    const inner = await findInnerBoxInSession(sessionId, code);
-    if (!inner) {
-      playSound("error");
-      setScanFeedback(
-        "error",
-        "Invalid inner LPN",
-        "This barcode is not an inner box for the POs in this session."
-      );
-      return;
-    }
+      const inner = await findInnerBoxInSession(sessionId, code, sessionPoIdsRef.current);
+      if (!inner) {
+        playSound("error");
+        setScanFeedback(
+          "error",
+          "Invalid inner LPN",
+          "This barcode is not an inner box for the POs in this session."
+        );
+        return;
+      }
 
-    const assignment = await findInnerAssignment(inner.id);
-    if (assignment) {
-      if (assignment.master_box_id === activeMaster.id) {
-        setBusy(true);
-        try {
+      const assignment = await findInnerAssignment(inner.id);
+      if (assignment) {
+        if (assignment.master_box_id === activeMaster.id) {
           await removeInnerFromMaster(assignment.id);
           playSound("stage");
-          await loadContents(activeMaster.id);
+          setActiveContents((prev) => prev.filter((c) => c.id !== assignment.id));
           setScanFeedback("success", "Scan undone", `${code} removed from master #${activeMaster.box_number}.`);
-        } catch (err: unknown) {
-          playSound("error");
-          setScanFeedback("error", "Undo failed", getSupabaseErrorMessage(err, "Could not remove"));
-        } finally {
-          setBusy(false);
+          return;
         }
+        playSound("error");
+        setScanFeedback(
+          "error",
+          "Already packed elsewhere",
+          "This inner box is in another master. Remove it there first."
+        );
         return;
       }
-      playSound("error");
-      setScanFeedback(
-        "error",
-        "Already packed elsewhere",
-        "This inner box is in another master. Remove it there first."
-      );
-      return;
-    }
 
-    try {
-      await assignInnerToMaster(activeMaster, inner);
+      const content = await assignInnerToMaster(activeMaster, inner);
       playSound("success");
-      await loadContents(activeMaster.id);
+      setActiveContents((prev) => [
+        ...prev,
+        {
+          ...content,
+          po_number: inner.po_number,
+          product_name: inner.product_name,
+        },
+      ]);
       setScanFeedback(
         "success",
         "Inner added",
@@ -268,7 +279,10 @@ export default function MasterPackStation(props: { params: Promise<{ sessionId: 
       );
     } catch (err: unknown) {
       playSound("error");
-      setScanFeedback("error", "Add failed", getSupabaseErrorMessage(err, "Could not assign inner box"));
+      setScanFeedback("error", "Scan failed", getSupabaseErrorMessage(err, "Could not process scan"));
+    } finally {
+      setBusy(false);
+      inputRef.current?.focus();
     }
   };
 

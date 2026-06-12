@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Box, Loader2, Package, Plus } from "lucide-react";
+import { ArrowRight, Box, Loader2, Package, Plus, RotateCcw } from "lucide-react";
 import {
   AlertBanner,
   BackLink,
@@ -19,6 +19,7 @@ import {
   fetchEligiblePurchaseOrders,
   fetchPackingSessions,
   markMasterPackCompletedForPos,
+  revertMasterPackCompletionForPos,
 } from "../../lib/masterPackingDb";
 import { getSupabaseErrorMessage } from "../../lib/supabaseError";
 import type { PackingSession, PurchaseOrderRow } from "../../types/masterPacking";
@@ -35,6 +36,7 @@ export default function MasterShipHome() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [bulkCompleting, setBulkCompleting] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [error, setError] = useState("");
   const [setupHint, setSetupHint] = useState(false);
 
@@ -71,7 +73,9 @@ export default function MasterShipHome() {
 
   const togglePo = (id: string) => {
     const po = pos.find((p) => p.id === id);
-    if (!po || po.master_pack_status === "completed") return;
+    if (!po) return;
+    if (moduleTab === "ACTIVE" && po.master_pack_status === "completed") return;
+    if (moduleTab === "HISTORY" && po.master_pack_status !== "completed") return;
     setSelectedPoIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
@@ -124,6 +128,34 @@ export default function MasterShipHome() {
     }
   };
 
+  const handleRevertCompletion = async (poIds: string[]) => {
+    if (poIds.length === 0) return;
+
+    const hasSession = poIds.some((id) => {
+      const po = pos.find((p) => p.id === id);
+      return !!po?.master_pack_session_id;
+    });
+
+    const ok = window.confirm(
+      hasSession
+        ? `Revert master packing completion for ${poIds.length} selected PO(s)?\n\nSession-linked POs will reopen their packing session so you can continue scanning. Inner-box-only POs return to the active queue.`
+        : `Revert master packing completion for ${poIds.length} selected PO(s)?\n\nThese POs will return to the active master packing queue.`
+    );
+    if (!ok) return;
+
+    setReverting(true);
+    setError("");
+    try {
+      await revertMasterPackCompletionForPos(poIds);
+      setSelectedPoIds([]);
+      await load();
+    } catch (e: unknown) {
+      setError(getSupabaseErrorMessage(e, "Failed to revert master packing completion"));
+    } finally {
+      setReverting(false);
+    }
+  };
+
   const handleBulkMarkCompleted = async () => {
     if (selectedPoIds.length === 0) return;
 
@@ -149,7 +181,7 @@ export default function MasterShipHome() {
   };
 
   return (
-    <MasterShipShell className={selectedPoIds.length > 0 ? "pb-28" : "pb-12"}>
+    <MasterShipShell className={selectedPoIds.length > 0 ? "pb-32" : "pb-12"}>
       <BackLink href="/" label="Fulfillment Dashboard" />
       <PageTitle
         title="Master Box Shipping"
@@ -226,7 +258,7 @@ export default function MasterShipHome() {
         description={
           moduleTab === "ACTIVE"
             ? "Tick every PO that ships together in this batch. Completed master-packed POs are locked."
-            : "POs that already completed the master box module. These are read-only and cannot be packed again."
+            : "POs that completed master packing. Select one or more to revert a mistaken completion."
         }
         icon={Package}
       >
@@ -291,7 +323,11 @@ export default function MasterShipHome() {
                 <div
                   key={po.id}
                   className={`text-left p-4 rounded-xl border-2 transition ${
-                    moduleTab === "HISTORY" || po.master_pack_status === "completed"
+                    moduleTab === "HISTORY"
+                      ? selected
+                        ? "border-amber-500 bg-amber-50 ring-2 ring-amber-200 ring-offset-2"
+                        : "border-slate-200 bg-slate-50"
+                      : po.master_pack_status === "completed"
                       ? "border-slate-200 bg-slate-50"
                       : selected
                       ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200 ring-offset-2"
@@ -304,18 +340,15 @@ export default function MasterShipHome() {
                         selected ? "bg-violet-600 border-violet-600" : "bg-white border-slate-300"
                       }`}
                       role="button"
-                      tabIndex={moduleTab === "ACTIVE" && po.master_pack_status !== "completed" ? 0 : -1}
-                      onClick={() => {
-                        if (moduleTab === "ACTIVE" && po.master_pack_status !== "completed") {
-                          togglePo(po.id);
-                        }
-                      }}
+                      tabIndex={
+                        (moduleTab === "ACTIVE" && po.master_pack_status !== "completed") ||
+                        (moduleTab === "HISTORY" && po.master_pack_status === "completed")
+                          ? 0
+                          : -1
+                      }
+                      onClick={() => togglePo(po.id)}
                       onKeyDown={(e) => {
-                        if (
-                          (e.key === "Enter" || e.key === " ") &&
-                          moduleTab === "ACTIVE" &&
-                          po.master_pack_status !== "completed"
-                        ) {
+                        if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           togglePo(po.id);
                         }
@@ -367,6 +400,21 @@ export default function MasterShipHome() {
                       {selected ? "Unselect PO" : "Select PO"}
                     </button>
                   )}
+                  {moduleTab === "HISTORY" && po.master_pack_status === "completed" && (
+                    <button
+                      type="button"
+                      onClick={() => handleRevertCompletion([po.id])}
+                      disabled={reverting}
+                      className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold rounded-lg border border-amber-200 text-amber-800 py-1.5 hover:bg-amber-50 transition disabled:opacity-50"
+                    >
+                      {reverting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-4 h-4" />
+                      )}
+                      Undo completion
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -374,29 +422,47 @@ export default function MasterShipHome() {
         )}
       </SectionCard>
 
-      {moduleTab === "ACTIVE" && selectedPoIds.length > 0 && (
+      {selectedPoIds.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur px-4 py-4 shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <p className="text-sm font-semibold text-slate-700 text-center sm:text-left">
               <span className="text-violet-700 font-bold text-lg tabular-nums">{selectedPoIds.length}</span>
               {" "}PO{selectedPoIds.length === 1 ? "" : "s"} selected
             </p>
-            <BtnPrimary
-              onClick={handleCreateSession}
-              disabled={creating || bulkCompleting || setupHint}
-              className="w-full sm:w-auto py-3.5 text-base"
-            >
-              {creating ? <Loader2 className="animate-spin w-5 h-5" /> : <Plus className="w-5 h-5" />}
-              Start master packing
-            </BtnPrimary>
-            <button
-              type="button"
-              onClick={handleBulkMarkCompleted}
-              disabled={creating || bulkCompleting || setupHint}
-              className="w-full sm:w-auto py-3.5 px-4 text-base rounded-xl border-2 border-emerald-200 text-emerald-700 font-bold hover:bg-emerald-50 transition disabled:opacity-50"
-            >
-              {bulkCompleting ? "Marking..." : "Mark selected as Inner-box-only completed"}
-            </button>
+            {moduleTab === "ACTIVE" ? (
+              <>
+                <BtnPrimary
+                  onClick={handleCreateSession}
+                  disabled={creating || bulkCompleting || reverting || setupHint}
+                  className="w-full sm:w-auto py-3.5 text-base"
+                >
+                  {creating ? <Loader2 className="animate-spin w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                  Start master packing
+                </BtnPrimary>
+                <button
+                  type="button"
+                  onClick={handleBulkMarkCompleted}
+                  disabled={creating || bulkCompleting || reverting || setupHint}
+                  className="w-full sm:w-auto py-3.5 px-4 text-base rounded-xl border-2 border-emerald-200 text-emerald-700 font-bold hover:bg-emerald-50 transition disabled:opacity-50"
+                >
+                  {bulkCompleting ? "Marking..." : "Mark selected as Inner-box-only completed"}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleRevertCompletion(selectedPoIds)}
+                disabled={reverting || setupHint}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 py-3.5 px-4 text-base rounded-xl border-2 border-amber-300 text-amber-900 font-bold hover:bg-amber-50 transition disabled:opacity-50"
+              >
+                {reverting ? (
+                  <Loader2 className="animate-spin w-5 h-5" />
+                ) : (
+                  <RotateCcw className="w-5 h-5" />
+                )}
+                Revert selected completions
+              </button>
+            )}
           </div>
         </div>
       )}
