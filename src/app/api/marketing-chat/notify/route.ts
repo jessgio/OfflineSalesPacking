@@ -120,15 +120,17 @@ export async function POST(request: Request) {
             : [...recipients].map((email) => participantLabel(email, participants));
 
         const purpose = pkg.request_purpose?.trim() || "—";
-        await sendLarkMarketingChat(
-          [
-            `📦 Marketing chat — ${pkg.barcode} · ${pkg.status}`,
-            `Recipient: ${pkg.recipient_name} · Purpose: ${purpose}`,
-            `Requested by: ${pkg.requested_by_name} · From: ${message.author_name} · Notified: ${notifiedLabels.join(", ")}`,
-          ],
-          message.body,
-          `Dashboard: ${marketingUrl}`
-        );
+        await sendLarkMarketingChat({
+          barcode: pkg.barcode,
+          status: pkg.status,
+          recipientName: pkg.recipient_name,
+          purpose,
+          requestedByName: pkg.requested_by_name,
+          authorName: message.author_name,
+          notifiedLabels,
+          messageBody: message.body,
+          dashboardUrl: marketingUrl,
+        });
         larkSent = true;
       } catch (larkErr) {
         console.error("marketing-chat Lark notify error:", larkErr);

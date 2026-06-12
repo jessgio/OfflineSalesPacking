@@ -1,24 +1,39 @@
 import crypto from "crypto";
 
 const LARK_TEXT_MAX_LENGTH = 4000;
-const LARK_POST_LOCALE = "en_us";
 
 type LarkWebhookPayload = {
   msg_type: string;
-  content: Record<string, unknown>;
+  content?: Record<string, unknown>;
+  card?: LarkCard;
   timestamp?: string;
   sign?: string;
 };
 
-type LarkPostTextElement = {
-  tag: "text";
-  text: string;
-  style?: Array<"bold" | "underline" | "lineThrough" | "italic">;
+type LarkPlainText = { tag: "plain_text"; content: string };
+type LarkMarkdown = { tag: "lark_md"; content: string };
+
+type LarkCardElement =
+  | { tag: "div"; text: LarkMarkdown }
+  | { tag: "hr" }
+  | {
+      tag: "action";
+      actions: Array<{
+        tag: "button";
+        text: LarkPlainText;
+        url: string;
+        type: "primary" | "default";
+      }>;
+    };
+
+type LarkCard = {
+  config?: { wide_screen_mode: boolean };
+  header?: {
+    template?: "blue" | "wathet" | "turquoise" | "green" | "yellow" | "orange" | "red" | "carmine" | "violet" | "purple" | "indigo" | "grey";
+    title: LarkPlainText;
+  };
+  elements: LarkCardElement[];
 };
-
-type LarkPostLine = LarkPostTextElement[];
-
-type LarkLinePart = { text: string; bold?: boolean };
 
 function signPayload(timestamp: string, secret: string): string {
   const stringToSign = `${timestamp}\n${secret}`;
@@ -36,18 +51,17 @@ function truncateText(text: string): string {
   return `${text.slice(0, LARK_TEXT_MAX_LENGTH - 1)}…`;
 }
 
-function larkTextLine(text: string, style?: LarkPostTextElement["style"]): LarkPostLine {
-  const element: LarkPostTextElement = { tag: "text", text };
-  if (style?.length) element.style = style;
-  return [element];
+/** Escape user content embedded in lark_md so markdown stays valid. */
+function escapeLarkMd(text: string): string {
+  return text.replace(/([\\`*_\[\]()#+\-.!|>{}])/g, "\\$1");
 }
 
-function larkMixedLine(parts: LarkLinePart[]): LarkPostLine {
-  return parts.map(({ text, bold }) => {
-    const element: LarkPostTextElement = { tag: "text", text };
-    if (bold) element.style = ["bold"];
-    return element;
-  });
+function mdField(label: string, value: string): string {
+  return `**${label}:** ${escapeLarkMd(value)}`;
+}
+
+function mdLines(lines: string[]): string {
+  return lines.filter(Boolean).join("\n");
 }
 
 async function sendLarkWebhook(payload: LarkWebhookPayload): Promise<void> {
@@ -74,24 +88,34 @@ async function sendLarkWebhook(payload: LarkWebhookPayload): Promise<void> {
     throw new Error(`Lark webhook failed (${res.status}): ${errText}`);
   }
 
-  const data = (await res.json()) as { StatusCode?: number; msg?: string };
-  if (data.StatusCode !== 0) {
+  const data = (await res.json()) as { StatusCode?: number; msg?: string; code?: number };
+  if (data.StatusCode !== 0 && data.code !== 0) {
     throw new Error(data.msg ?? "Lark webhook returned non-zero StatusCode");
   }
 }
 
-async function sendLarkPost(content: LarkPostLine[]): Promise<void> {
+async function sendLarkCard(card: LarkCard): Promise<void> {
   await sendLarkWebhook({
-    msg_type: "post",
-    content: {
-      post: {
-        [LARK_POST_LOCALE]: {
-          title: "",
-          content,
-        },
-      },
+    msg_type: "interactive",
+    card: {
+      config: { wide_screen_mode: true },
+      ...card,
     },
   });
+}
+
+function dashboardButton(url: string, label = "Open dashboard"): LarkCardElement {
+  return {
+    tag: "action",
+    actions: [
+      {
+        tag: "button",
+        text: { tag: "plain_text", content: label },
+        url,
+        type: "primary",
+      },
+    ],
+  };
 }
 
 /** Join non-empty lines with a single newline — no blank gaps between fields. */
@@ -102,22 +126,53 @@ export function formatLarkMessage(lines: Array<string | null | undefined | false
     .join("\n");
 }
 
-/** Rich post: compact header/footer with a bold message sandwiched between blank lines. */
-export async function sendLarkMarketingChat(
-  headerLines: string[],
-  body: string,
-  footerLine: string
-): Promise<void> {
-  const message = truncateText(body.trim());
-  const messageLines = message.length > 0 ? message.split("\n") : [" "];
+export async function sendLarkMarketingChat(params: {
+  barcode: string;
+  status: string;
+  recipientName: string;
+  purpose: string;
+  requestedByName: string;
+  authorName: string;
+  notifiedLabels: string[];
+  messageBody: string;
+  dashboardUrl: string;
+}): Promise<void> {
+  const message = truncateText(params.messageBody.trim());
 
-  await sendLarkPost([
-    ...headerLines.filter((line) => line.trim()).map((line) => larkTextLine(line)),
-    larkTextLine(""),
-    ...messageLines.map((line) => larkTextLine(line || " ", ["bold"])),
-    larkTextLine(""),
-    larkTextLine(footerLine.trim()),
-  ]);
+  await sendLarkCard({
+    header: {
+      template: "purple",
+      title: {
+        tag: "plain_text",
+        content: `Marketing chat — ${params.barcode}`,
+      },
+    },
+    elements: [
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: mdLines([
+            mdField("Status", params.status),
+            mdField("Recipient", params.recipientName),
+            mdField("Purpose", params.purpose),
+            mdField("Requested by", params.requestedByName),
+            mdField("From", params.authorName),
+            mdField("Notified", params.notifiedLabels.join(", ") || "—"),
+          ]),
+        },
+      },
+      { tag: "hr" },
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: `**Message**\n${escapeLarkMd(message)}`,
+        },
+      },
+      dashboardButton(params.dashboardUrl),
+    ],
+  });
 }
 
 export async function sendLarkShippedAlert(params: {
@@ -129,73 +184,79 @@ export async function sendLarkShippedAlert(params: {
   shippedBy: string;
   dashboardUrl: string;
 }): Promise<void> {
-  await sendLarkPost([
-    larkMixedLine([
-      { text: "🚚 Package shipped — " },
-      { text: params.barcode, bold: true },
-      { text: " · Status: " },
-      { text: params.status, bold: true },
-    ]),
-    larkMixedLine([
-      { text: "Recipient: " },
-      { text: params.recipientName, bold: true },
-      { text: " · Purpose: " },
-      { text: params.purpose },
-    ]),
-    larkMixedLine([
-      { text: "Requested by: " },
-      { text: params.requestedByName },
-      { text: " · Shipped by: " },
-      { text: params.shippedBy, bold: true },
-    ]),
-    larkTextLine(`Dashboard: ${params.dashboardUrl}`),
-  ]);
+  await sendLarkCard({
+    header: {
+      template: "green",
+      title: {
+        tag: "plain_text",
+        content: `Package shipped — ${params.barcode}`,
+      },
+    },
+    elements: [
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: mdLines([
+            mdField("Status", params.status),
+            mdField("Recipient", params.recipientName),
+            mdField("Purpose", params.purpose),
+            mdField("Requested by", params.requestedByName),
+            mdField("Shipped by", params.shippedBy),
+          ]),
+        },
+      },
+      dashboardButton(params.dashboardUrl),
+    ],
+  });
 }
 
-function larkDailySummaryLine(line: string): LarkPostLine {
+function dailySummaryLineToMd(line: string): string {
   const trimmed = line.trim();
-  if (!trimmed) return larkTextLine("");
+  if (!trimmed) return "";
 
   if (/warning/i.test(trimmed)) {
-    return larkTextLine(trimmed, ["bold"]);
+    return `**${escapeLarkMd(trimmed)}**`;
   }
 
   const statusMatch = trimmed.match(/^(.*\bStatus:\s*)(.+)$/i);
   if (statusMatch) {
-    return larkMixedLine([
-      { text: statusMatch[1] },
-      { text: statusMatch[2], bold: true },
-    ]);
+    return `${escapeLarkMd(statusMatch[1])}**${escapeLarkMd(statusMatch[2])}**`;
   }
 
   const poMatch = trimmed.match(/^(.*\bPO\s*Number:\s*)(.+)$/i);
   if (poMatch) {
-    return larkMixedLine([
-      { text: poMatch[1] },
-      { text: poMatch[2], bold: true },
-    ]);
+    return `${escapeLarkMd(poMatch[1])}**${escapeLarkMd(poMatch[2])}**`;
   }
 
   const deadlineMatch = trimmed.match(/^(.*\bDeadline:\s*)(.+)$/i);
   if (deadlineMatch) {
-    return larkMixedLine([
-      { text: deadlineMatch[1] },
-      { text: deadlineMatch[2], bold: true },
-    ]);
+    return `${escapeLarkMd(deadlineMatch[1])}**${escapeLarkMd(deadlineMatch[2])}**`;
   }
 
-  return larkTextLine(trimmed);
+  return escapeLarkMd(trimmed);
 }
 
 export async function sendLarkDailySummary(title: string, body: string): Promise<void> {
   const summary = truncateText(body.trim());
-  const lines = summary.length > 0 ? summary.split("\n") : ["Report generation failed."];
+  const lines =
+    summary.length > 0 ? summary.split("\n") : ["Report generation failed."];
 
-  await sendLarkPost([
-    larkTextLine(title, ["bold"]),
-    larkTextLine(""),
-    ...lines.map(larkDailySummaryLine),
-  ]);
+  await sendLarkCard({
+    header: {
+      template: "blue",
+      title: { tag: "plain_text", content: title },
+    },
+    elements: [
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: lines.map(dailySummaryLineToMd).filter(Boolean).join("\n"),
+        },
+      },
+    ],
+  });
 }
 
 export async function sendLarkText(text: string): Promise<void> {
