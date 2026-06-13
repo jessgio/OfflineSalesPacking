@@ -57,3 +57,14 @@
 .animate-notification-dot {
   animation: notification-dot-blink 1.2s ease-in-out infinite;
 }
+
+@media print {
+  .thermal-label-print {
+    page: thermal-label;
+  }
+
+  @page thermal-label {
+    size: 100mm 150mm;
+    margin: 0;
+  }
+}

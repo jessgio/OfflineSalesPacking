@@ -1,8 +1,6 @@
 import Barcode from "react-barcode";
 import type { MarketingRequest } from "../../types/marketing";
-
-export const MARKETING_LABEL_CLASS =
-  "bg-white border-2 border-dashed border-gray-300 w-[100mm] min-h-[150mm] p-5 flex flex-col rounded-xl shadow-sm print:border-none print:shadow-none print:rounded-none print:w-[100mm] print:min-h-[150mm] print:break-after-page";
+import { THERMAL_BARCODE, thermalLabelShellClass } from "../../lib/thermalLabel";
 
 export function MarketingShippingLabel({ request }: { request: MarketingRequest }) {
   const addressLines = [
@@ -23,7 +21,7 @@ export function MarketingShippingLabel({ request }: { request: MarketingRequest 
     : null;
 
   return (
-    <div className={MARKETING_LABEL_CLASS}>
+    <div className={thermalLabelShellClass({ border: "gray" })}>
       <div className="border-b-2 border-black pb-2 mb-3">
         <h2 className="font-black text-xl tracking-tighter uppercase">AERIS BEAUTE</h2>
         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-600">Marketing shipment</p>
@@ -82,13 +80,13 @@ export function MarketingShippingLabel({ request }: { request: MarketingRequest 
       <div className="mt-auto flex flex-col items-center pt-2">
         <Barcode
           value={request.barcode}
-          format="CODE128"
+          format={THERMAL_BARCODE.format}
           width={1.8}
           height={50}
           displayValue
-          margin={0}
+          margin={THERMAL_BARCODE.margin}
           fontSize={14}
-          background="transparent"
+          background={THERMAL_BARCODE.background}
         />
         <p className="text-[9px] text-gray-600 mt-2 uppercase font-bold tracking-widest text-center">
           Scan when packed · paste on package

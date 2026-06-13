@@ -6,6 +6,7 @@ import Barcode from "react-barcode";
 import { ArrowLeft, Printer, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { needsCartonPlanning } from "../../../lib/sociolla/cartonPlan";
+import { THERMAL_BARCODE, THERMAL_LABEL_HINT, thermalLabelGridClass, thermalLabelPageClass, thermalLabelShellClass } from "../../../lib/thermalLabel";
 import { CenteredPage, DashButton, SurfaceCard } from "../../../components/dashboard/primitives";
 
 interface BoxContentRow {
@@ -113,7 +114,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-24 text-black">
+    <div className={`${thermalLabelPageClass} bg-gray-100`}>
       <div className="bg-white border-b px-8 py-4 flex justify-between items-center shadow-sm z-10 sticky top-0 print:hidden">
         <div className="flex items-center gap-4">
           <Link href="/">
@@ -128,37 +129,39 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
         </DashButton>
       </div>
 
-      <div className="p-8 max-w-5xl mx-auto print:p-0 print:m-0 flex flex-wrap gap-6 justify-center">
+      <p className="print:hidden text-sm text-gray-600 text-center my-6 px-4">{THERMAL_LABEL_HINT}</p>
+
+      <div className={`${thermalLabelGridClass} max-w-5xl mx-auto`}>
         {boxes.map((box) => (
-          <div 
-            key={box.id} 
-            className="bg-white border-2 border-dashed border-gray-300 w-80 h-auto p-6 flex flex-col justify-between items-center rounded-xl text-center shadow-sm print:border-none print:w-[100mm] print:h-[150mm] print:break-after-page print:shadow-none print:rounded-none print:justify-start print:pt-12"
+          <div
+            key={box.id}
+            className={`${thermalLabelShellClass({ border: "gray" })} justify-between items-center text-center`}
           >
              <div className="w-full">
-               <h2 className="font-black text-3xl tracking-tighter uppercase mb-1">AERIS BEAUTE</h2>
-               <p className="text-sm font-bold border-b-2 border-black w-full pb-2 mb-4">PO: {po.po_number}</p>
-               
-               <p className="text-lg font-extrabold text-gray-900 leading-tight min-h-[3rem] flex items-center justify-center px-2">
+               <h2 className="font-black text-2xl tracking-tighter uppercase mb-1">AERIS BEAUTE</h2>
+               <p className="text-sm font-bold border-b-2 border-black w-full pb-2 mb-3">PO: {po.po_number}</p>
+
+               <p className="text-base font-extrabold text-gray-900 leading-tight min-h-[2.5rem] flex items-center justify-center px-2">
                   {box.product_name}
                </p>
 
-               <div className="my-4 border-y-4 border-black w-full py-2 font-black tracking-widest text-xl text-black">
+               <div className="my-3 border-y-4 border-black w-full py-2 font-black tracking-widest text-lg text-black">
                   CARTON {box.carton_number} OF {box.total_cartons}
                </div>
              </div>
 
-             <div className="mt-2 scale-110 print:scale-125 transform origin-top overflow-hidden flex flex-col items-center w-full">
-                <Barcode 
-                   value={box.box_barcode} 
-                   format="CODE128" 
-                   width={2.2} 
-                   height={65} 
-                   displayValue={true} 
-                   margin={0}
-                   fontSize={16}
-                   background="transparent"
+             <div className="flex flex-col items-center w-full">
+                <Barcode
+                   value={box.box_barcode}
+                   format={THERMAL_BARCODE.format}
+                   width={2}
+                   height={52}
+                   displayValue
+                   margin={THERMAL_BARCODE.margin}
+                   fontSize={12}
+                   background={THERMAL_BARCODE.background}
                 />
-                <p className="text-[11px] text-gray-600 mt-5 uppercase font-bold tracking-widest">LPN Verification Required</p>
+                <p className="text-[10px] text-gray-600 mt-3 uppercase font-bold tracking-widest">LPN Verification Required</p>
              </div>
           </div>
         ))}

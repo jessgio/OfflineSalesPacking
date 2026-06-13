@@ -1,11 +1,13 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { Loader2, Printer } from "lucide-react";
+import Link from "next/link";
+import { Loader2, Printer, Tags } from "lucide-react";
 import {
   AlertBanner,
   BarcodeDisplay,
   BtnPrimary,
+  BtnSecondary,
   EmptyState,
   StatTile,
   StatusBadge,
@@ -82,9 +84,18 @@ export default function MasterManifestPage(props: { params: Promise<{ sessionId:
           badge={<StatusBadge status={sessionStatus} />}
           subtitle={<span className="font-mono font-semibold">Session {sessionCode}</span>}
           actions={
-            <BtnPrimary onClick={() => window.print()}>
-              <Printer className="w-4 h-4" /> Print
-            </BtnPrimary>
+            <>
+              {masterBoxes.length > 0 && (
+                <Link href={`/master-ship/${sessionId}/manifest-labels`}>
+                  <BtnSecondary>
+                    <Tags className="w-4 h-4" /> Box labels
+                  </BtnSecondary>
+                </Link>
+              )}
+              <BtnPrimary onClick={() => window.print()}>
+                <Printer className="w-4 h-4" /> Print manifest
+              </BtnPrimary>
+            </>
           }
         />
 

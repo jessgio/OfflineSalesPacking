@@ -10,6 +10,7 @@ import {
   TopBar,
 } from "../../../../components/master-ship/ui";
 import { fetchMasterBoxes, fetchSession, fetchSessionPos } from "../../../../lib/masterPackingDb";
+import { THERMAL_BARCODE, THERMAL_LABEL_HINT, thermalLabelGridClass, thermalLabelPageClass, thermalLabelShellClass } from "../../../../lib/thermalLabel";
 import type { MasterBox, PackingSession, PurchaseOrderRow } from "../../../../types/masterPacking";
 
 export default function MasterLabelPrinter(props: { params: Promise<{ sessionId: string }> }) {
@@ -61,7 +62,7 @@ export default function MasterLabelPrinter(props: { params: Promise<{ sessionId:
   const poSummary = pos.map((p) => p.po_number).join(" · ");
 
   return (
-    <div className="min-h-screen bg-slate-100 pb-24 text-black">
+    <div className={`${thermalLabelPageClass} bg-slate-100`}>
       <div className="max-w-5xl mx-auto">
         <TopBar
           backHref={`/master-ship/${sessionId}`}
@@ -81,32 +82,34 @@ export default function MasterLabelPrinter(props: { params: Promise<{ sessionId:
         />
 
         <p className="print:hidden text-sm text-slate-600 text-center mb-6 px-4">
-          Preview below. Use <strong>Print all</strong> for thermal labels — one page per master carton.
+          {THERMAL_LABEL_HINT}
         </p>
 
-        <div className="px-4 pb-8 flex flex-wrap gap-6 justify-center print:p-0 print:gap-0">
+        <div className={thermalLabelGridClass}>
           {boxes.map((box) => (
             <div
               key={box.id}
-              className="bg-white border-2 border-dashed border-violet-200 w-[20rem] p-6 flex flex-col items-center rounded-2xl shadow-sm print:border-none print:w-[100mm] print:h-[150mm] print:break-after-page print:shadow-none print:rounded-none print:justify-start print:pt-12"
+              className={`${thermalLabelShellClass({ border: "violet" })} items-center justify-between`}
             >
-              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600">Aeris · Master carton</p>
-              <h2 className="font-black text-2xl tracking-tight uppercase mt-1 mb-2">Master #{box.box_number}</h2>
-              <p className="text-[11px] font-semibold border-b-2 border-black w-full pb-2 mb-3 text-center leading-tight">
-                {poSummary}
-              </p>
-              <p className="text-[10px] text-slate-600 uppercase font-bold tracking-wide mb-4 text-center leading-relaxed">
-                Paste on outer box · scan first in packing mode
-              </p>
+              <div className="w-full text-center">
+                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600">Aeris · Master carton</p>
+                <h2 className="font-black text-2xl tracking-tight uppercase mt-1 mb-2">Master #{box.box_number}</h2>
+                <p className="text-[11px] font-semibold border-b-2 border-black w-full pb-2 mb-3 leading-tight">
+                  {poSummary}
+                </p>
+                <p className="text-[10px] text-slate-600 uppercase font-bold tracking-wide leading-relaxed">
+                  Paste on outer box · scan first in packing mode
+                </p>
+              </div>
               <Barcode
                 value={box.master_barcode}
-                format="CODE128"
-                width={2.2}
-                height={70}
+                format={THERMAL_BARCODE.format}
+                width={2}
+                height={56}
                 displayValue
-                margin={0}
-                fontSize={14}
-                background="transparent"
+                margin={THERMAL_BARCODE.margin}
+                fontSize={12}
+                background={THERMAL_BARCODE.background}
               />
             </div>
           ))}

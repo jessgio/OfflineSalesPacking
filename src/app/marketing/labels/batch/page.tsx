@@ -7,6 +7,7 @@ import { ArrowLeft, Loader2, Printer } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard } from "../../../../components/dashboard/primitives";
 import { MarketingShippingLabel } from "../../../../components/marketing/MarketingShippingLabel";
 import { fetchMarketingRequestsByIds } from "../../../../lib/marketingDb";
+import { THERMAL_LABEL_HINT, thermalLabelGridClass, thermalLabelPageClass } from "../../../../lib/thermalLabel";
 import type { MarketingRequest } from "../../../../types/marketing";
 
 function BatchLabelsContent() {
@@ -57,7 +58,7 @@ function BatchLabelsContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-24 text-black">
+    <div className={`${thermalLabelPageClass} bg-gray-100`}>
       <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10 print:hidden">
         <div className="flex items-center gap-3">
           <Link href="/marketing/fulfill">
@@ -78,10 +79,10 @@ function BatchLabelsContent() {
       </div>
 
       <p className="print:hidden text-sm text-gray-600 text-center my-6 px-4">
-        Preview below. Use <strong>Print all</strong> for thermal labels — one page per package.
+        {THERMAL_LABEL_HINT}
       </p>
 
-      <div className="p-8 flex flex-wrap gap-8 justify-center print:p-0 print:gap-0">
+      <div className={thermalLabelGridClass}>
         {requests.map((request) => (
           <MarketingShippingLabel key={request.id} request={request} />
         ))}

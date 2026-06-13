@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Printer } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard } from "../../../../components/dashboard/primitives";
 import { MarketingShippingLabel } from "../../../../components/marketing/MarketingShippingLabel";
 import { fetchMarketingRequestById } from "../../../../lib/marketingDb";
+import { thermalLabelGridClass, thermalLabelPageClass } from "../../../../lib/thermalLabel";
 import type { MarketingRequest } from "../../../../types/marketing";
 
 export default function MarketingLabelPage(props: { params: Promise<{ id: string }> }) {
@@ -47,7 +48,7 @@ export default function MarketingLabelPage(props: { params: Promise<{ id: string
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-24 text-black">
+    <div className={`${thermalLabelPageClass} bg-gray-100`}>
       <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10 print:hidden">
         <div className="flex items-center gap-3">
           <Link href="/marketing/fulfill">
@@ -62,7 +63,7 @@ export default function MarketingLabelPage(props: { params: Promise<{ id: string
         </DashButton>
       </div>
 
-      <div className="p-8 flex justify-center print:p-0">
+      <div className={thermalLabelGridClass}>
         <MarketingShippingLabel request={request} />
       </div>
     </div>

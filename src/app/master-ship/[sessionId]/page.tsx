@@ -10,6 +10,7 @@ import {
   ScanLine,
   Plus,
   FileText,
+  Tags,
   Trash2,
   RotateCcw,
 } from "lucide-react";
@@ -232,6 +233,13 @@ export default function MasterShipSession(props: { params: Promise<{ sessionId: 
                   <FileText className="w-4 h-4" /> Manifest
                 </BtnSecondary>
               </Link>
+              {isCompleted && masterBoxes.length > 0 && (
+                <Link href={`/master-ship/${sessionId}/manifest-labels`}>
+                  <BtnSecondary>
+                    <Tags className="w-4 h-4" /> Box labels
+                  </BtnSecondary>
+                </Link>
+              )}
             </>
           }
         />
