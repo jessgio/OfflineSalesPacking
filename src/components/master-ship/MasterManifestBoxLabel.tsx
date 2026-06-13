@@ -2,9 +2,29 @@ import Barcode from "react-barcode";
 import type { ManifestMasterBox } from "../../types/masterPacking";
 import { THERMAL_BARCODE, thermalLabelShellClass } from "../../lib/thermalLabel";
 
-function truncateProduct(name: string, maxLen: number): string {
-  if (name.length <= maxLen) return name;
-  return `${name.slice(0, maxLen - 1)}…`;
+function tableTypography(skuCount: number) {
+  if (skuCount <= 5) {
+    return {
+      table: "text-[10px] leading-snug",
+      qty: "text-[11px] font-black",
+      header: "text-[10px]",
+      rowPy: "py-1",
+    };
+  }
+  if (skuCount <= 8) {
+    return {
+      table: "text-[9px] leading-snug",
+      qty: "text-[10px] font-black",
+      header: "text-[9px]",
+      rowPy: "py-0.5",
+    };
+  }
+  return {
+    table: "text-[8px] leading-tight",
+    qty: "text-[9px] font-black",
+    header: "text-[8px]",
+    rowPy: "py-0.5",
+  };
 }
 
 export function MasterManifestBoxLabel({
@@ -20,9 +40,7 @@ export function MasterManifestBoxLabel({
 }) {
   const innerCartonCount = master.inner_boxes.reduce((sum, row) => sum + row.count, 0);
   const skuCount = master.inner_boxes.length;
-  const compact = skuCount > 6;
-  const rowTextClass = compact ? "text-[7px] leading-tight" : "text-[8px] leading-snug";
-  const productMaxLen = compact ? 26 : 32;
+  const type = tableTypography(skuCount);
 
   return (
     <div className={thermalLabelShellClass({ border: "violet" })}>
@@ -77,20 +95,31 @@ export function MasterManifestBoxLabel({
         {master.inner_boxes.length === 0 ? (
           <p className="text-[8px] italic text-slate-600">No inner cartons assigned</p>
         ) : (
-          <table className={`w-full ${rowTextClass}`}>
+          <table className={`w-full table-fixed ${type.table}`}>
+            <colgroup>
+              <col className="w-[11%]" />
+              <col className="w-[39%]" />
+              <col className="w-[50%]" />
+            </colgroup>
             <thead>
-              <tr className="border-b border-slate-300 text-left">
-                <th className="py-0.5 pr-1 font-bold w-6">Qty</th>
-                <th className="py-0.5 pr-1 font-bold w-[4.5rem]">SKU</th>
-                <th className="py-0.5 font-bold">Product</th>
+              <tr className={`border-b border-slate-300 text-left ${type.header}`}>
+                <th className={`${type.rowPy} pr-1 font-bold`}>Qty</th>
+                <th className={`${type.rowPy} pr-1 font-bold`}>SKU</th>
+                <th className={`${type.rowPy} font-bold`}>Product</th>
               </tr>
             </thead>
             <tbody>
               {master.inner_boxes.map((inner) => (
                 <tr key={`${inner.product_barcode}:${inner.po_number}`} className="border-b border-slate-100 last:border-0">
-                  <td className="py-0.5 pr-1 font-bold tabular-nums align-top">{inner.count}</td>
-                  <td className="py-0.5 pr-1 font-mono align-top break-all">{inner.product_barcode || "—"}</td>
-                  <td className="py-0.5 align-top">{truncateProduct(inner.product_name, productMaxLen)}</td>
+                  <td className={`${type.rowPy} pr-1 ${type.qty} tabular-nums align-top text-center`}>
+                    {inner.count}
+                  </td>
+                  <td className={`${type.rowPy} pr-1 font-mono font-semibold align-top break-all leading-tight`}>
+                    {inner.product_barcode || "—"}
+                  </td>
+                  <td className={`${type.rowPy} align-top leading-tight line-clamp-2`}>
+                    {inner.product_name}
+                  </td>
                 </tr>
               ))}
             </tbody>
