@@ -5,24 +5,24 @@ import { THERMAL_BARCODE, thermalLabelShellClass } from "../../lib/thermalLabel"
 function tableTypography(skuCount: number) {
   if (skuCount <= 5) {
     return {
-      table: "text-[10px] leading-snug",
-      qty: "text-[11px] font-black",
-      header: "text-[10px]",
+      table: "text-[11px] leading-snug",
+      qty: "text-[12px] font-black",
+      header: "text-[11px]",
       rowPy: "py-1",
     };
   }
   if (skuCount <= 8) {
     return {
-      table: "text-[9px] leading-snug",
-      qty: "text-[10px] font-black",
-      header: "text-[9px]",
+      table: "text-[10px] leading-snug",
+      qty: "text-[11px] font-black",
+      header: "text-[10px]",
       rowPy: "py-0.5",
     };
   }
   return {
-    table: "text-[8px] leading-tight",
-    qty: "text-[9px] font-black",
-    header: "text-[8px]",
+    table: "text-[9px] leading-tight",
+    qty: "text-[10px] font-black",
+    header: "text-[9px]",
     rowPy: "py-0.5",
   };
 }
