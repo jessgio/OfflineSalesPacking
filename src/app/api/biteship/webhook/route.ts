@@ -2,13 +2,23 @@ import { NextResponse } from "next/server";
 import { supabase } from "../../../../lib/supabaseClient";
 import {
   buildMarketingUpdateFromWebhook,
+  isBiteshipWebhookInstallProbe,
   parseBiteshipWebhookPayload,
   shouldHandleBiteshipWebhookEvent,
   verifyBiteshipWebhookSignature,
 } from "../../../../lib/biteshipWebhook";
 
+export async function GET() {
+  return NextResponse.json({ ok: true });
+}
+
 export async function POST(request: Request) {
   const rawBody = await request.text();
+
+  // Biteship installation check: accept empty application/json without signature.
+  if (isBiteshipWebhookInstallProbe(rawBody)) {
+    return NextResponse.json({ ok: true });
+  }
 
   if (!verifyBiteshipWebhookSignature(request)) {
     return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });

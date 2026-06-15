@@ -17,6 +17,24 @@ export interface BiteshipWebhookPayload {
 
 const HANDLED_EVENTS = new Set<string>(["order.status", "order.waybill_id", "order.price"]);
 
+/** Biteship sends an empty JSON body while verifying the webhook URL during setup. */
+export function isBiteshipWebhookInstallProbe(rawBody: string): boolean {
+  const trimmed = rawBody.trim();
+  if (!trimmed) return true;
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      Object.keys(parsed as object).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isBiteshipWebhookVerificationConfigured(): boolean {
   return !!process.env.BITESHIP_WEBHOOK_SIGNATURE_SECRET?.trim();
 }
