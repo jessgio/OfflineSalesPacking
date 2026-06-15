@@ -346,3 +346,191 @@ export function formatIdr(amount: number): string {
     maximumFractionDigits: 0,
   }).format(amount);
 }
+
+export interface BiteshipTrackingHistoryEntry {
+  status: string;
+  note: string;
+  updatedAt: string;
+  serviceType: string | null;
+}
+
+export interface BiteshipTrackingSnapshot {
+  status: string;
+  waybillId: string | null;
+  trackingId: string | null;
+  courierCompany: string | null;
+  courierType: string | null;
+  driverName: string | null;
+  driverPhone: string | null;
+  driverPlateNumber: string | null;
+  originContactName: string | null;
+  originAddress: string | null;
+  destinationContactName: string | null;
+  destinationAddress: string | null;
+  trackingLink: string | null;
+  orderId: string | null;
+  history: BiteshipTrackingHistoryEntry[];
+  source: "order" | "tracking" | "public";
+}
+
+type RawHistoryEntry = {
+  status?: string;
+  note?: string;
+  updated_at?: string;
+  service_type?: string;
+};
+
+function normalizeHistory(entries: RawHistoryEntry[] | undefined): BiteshipTrackingHistoryEntry[] {
+  return (entries ?? [])
+    .filter((entry) => entry.status && entry.updated_at)
+    .map((entry) => ({
+      status: entry.status!.trim(),
+      note: entry.note?.trim() || "",
+      updatedAt: entry.updated_at!,
+      serviceType: entry.service_type?.trim() || null,
+    }))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+function snapshotFromTrackingPayload(
+  data: Record<string, unknown>,
+  source: BiteshipTrackingSnapshot["source"]
+): BiteshipTrackingSnapshot {
+  const courier = (data.courier ?? {}) as Record<string, unknown>;
+  const origin = (data.origin ?? {}) as Record<string, unknown>;
+  const destination = (data.destination ?? {}) as Record<string, unknown>;
+  const history = normalizeHistory(
+    (data.history ?? courier.history) as RawHistoryEntry[] | undefined
+  );
+
+  return {
+    status: String(data.status ?? history[0]?.status ?? "unknown"),
+    waybillId: (data.waybill_id as string | undefined)?.trim() || null,
+    trackingId:
+      (data.id as string | undefined)?.trim() ||
+      (courier.tracking_id as string | undefined)?.trim() ||
+      null,
+    courierCompany: (courier.company as string | undefined)?.trim() || null,
+    courierType: (courier.type as string | undefined)?.trim() || null,
+    driverName:
+      (courier.driver_name as string | undefined)?.trim() ||
+      (courier.name as string | undefined)?.trim() ||
+      null,
+    driverPhone:
+      (courier.driver_phone as string | undefined)?.trim() ||
+      (courier.phone as string | undefined)?.trim() ||
+      null,
+    driverPlateNumber: (courier.driver_plate_number as string | undefined)?.trim() || null,
+    originContactName: (origin.contact_name as string | undefined)?.trim() || null,
+    originAddress: (origin.address as string | undefined)?.trim() || null,
+    destinationContactName: (destination.contact_name as string | undefined)?.trim() || null,
+    destinationAddress: (destination.address as string | undefined)?.trim() || null,
+    trackingLink:
+      (data.link as string | undefined)?.trim() ||
+      (courier.link as string | undefined)?.trim() ||
+      null,
+    orderId: (data.order_id as string | undefined)?.trim() || (data.id as string | undefined)?.trim() || null,
+    history,
+    source,
+  };
+}
+
+type OrderTrackingResponse = {
+  success?: boolean;
+  id?: string;
+  status?: string;
+  courier?: {
+    tracking_id?: string;
+    waybill_id?: string;
+    company?: string;
+    type?: string;
+    link?: string;
+    driver_name?: string;
+    driver_phone?: string;
+    driver_plate_number?: string;
+    history?: RawHistoryEntry[];
+  };
+  origin?: { contact_name?: string; address?: string };
+  destination?: { contact_name?: string; address?: string };
+};
+
+type TrackingResponse = OrderTrackingResponse & {
+  waybill_id?: string;
+  history?: RawHistoryEntry[];
+  link?: string;
+  order_id?: string;
+};
+
+/** Fetch live tracking from a Biteship order ID (includes courier history). */
+export async function fetchBiteshipOrderTracking(orderId: string): Promise<BiteshipTrackingSnapshot> {
+  const data = await biteshipFetch<OrderTrackingResponse>(`/orders/${encodeURIComponent(orderId)}`, {
+    method: "GET",
+  });
+
+  if (!data.id) {
+    throw new Error("Biteship did not return order details.");
+  }
+
+  return snapshotFromTrackingPayload(data as Record<string, unknown>, "order");
+}
+
+/** Fetch tracking by Biteship tracking object ID. */
+export async function fetchBiteshipTrackingById(trackingId: string): Promise<BiteshipTrackingSnapshot> {
+  const data = await biteshipFetch<TrackingResponse>(
+    `/trackings/${encodeURIComponent(trackingId)}`,
+    { method: "GET" }
+  );
+
+  return snapshotFromTrackingPayload(data as Record<string, unknown>, "tracking");
+}
+
+/** Fetch public waybill tracking for any courier supported by Biteship. */
+export async function fetchBiteshipPublicTracking(
+  waybillId: string,
+  courierCode: string
+): Promise<BiteshipTrackingSnapshot> {
+  const data = await biteshipFetch<TrackingResponse>(
+    `/trackings/${encodeURIComponent(waybillId)}/couriers/${encodeURIComponent(courierCode)}`,
+    { method: "GET" }
+  );
+
+  return snapshotFromTrackingPayload(data as Record<string, unknown>, "public");
+}
+
+export async function resolveBiteshipTracking(input: {
+  orderId?: string | null;
+  trackingId?: string | null;
+  waybillId?: string | null;
+  courierCompany?: string | null;
+}): Promise<BiteshipTrackingSnapshot> {
+  const orderId = input.orderId?.trim();
+  const trackingId = input.trackingId?.trim();
+  const waybillId = input.waybillId?.trim();
+  const courierCompany = input.courierCompany?.trim();
+
+  if (orderId) {
+    try {
+      return await fetchBiteshipOrderTracking(orderId);
+    } catch (orderErr) {
+      if (!trackingId && !(waybillId && courierCompany)) {
+        throw orderErr;
+      }
+    }
+  }
+
+  if (trackingId) {
+    try {
+      return await fetchBiteshipTrackingById(trackingId);
+    } catch (trackingErr) {
+      if (!(waybillId && courierCompany)) {
+        throw trackingErr;
+      }
+    }
+  }
+
+  if (waybillId && courierCompany) {
+    return fetchBiteshipPublicTracking(waybillId, courierCompany);
+  }
+
+  throw new Error("No Biteship order, tracking ID, or waybill available for this shipment.");
+}

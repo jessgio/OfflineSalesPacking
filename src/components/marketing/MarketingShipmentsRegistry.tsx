@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, ChevronRight, Loader2, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Loader2, MapPin, Trash2 } from "lucide-react";
 import { BiteshipStatusBadge } from "./BiteshipStatusBadge";
 import { DashButton, SurfaceCard, cx, fieldInput } from "../dashboard/primitives";
 import {
@@ -9,6 +9,7 @@ import {
   updateMarketingRequestPurpose,
 } from "../../lib/marketingDb";
 import {
+  canTrackWithBiteship,
   courierNeedsActualShippingLabel,
   MARKETING_COURIERS_WITH_SHIPPING_LABEL,
   type MarketingRequest,
@@ -381,11 +382,23 @@ export function MarketingShipmentsRegistry({
                     {req.preferred_courier ?? "—"}
                   </td>
                   <td className="px-3 py-3">
-                    {req.biteship_order_id ? (
-                      <BiteshipStatusBadge
-                        status={req.biteship_status}
-                        updatedAt={req.biteship_status_updated_at}
-                      />
+                    {req.biteship_order_id || canTrackWithBiteship(req) ? (
+                      <button
+                        type="button"
+                        onClick={() => onViewRequest(req.id)}
+                        className="text-left group/track"
+                        title="View live tracking"
+                      >
+                        <BiteshipStatusBadge
+                          status={req.biteship_status}
+                          updatedAt={req.biteship_status_updated_at}
+                        />
+                        {canTrackWithBiteship(req) && (
+                          <span className="mt-1 flex items-center gap-0.5 text-[10px] font-semibold text-violet-600 opacity-0 group-hover/track:opacity-100 transition">
+                            <MapPin className="w-3 h-3" /> Track
+                          </span>
+                        )}
+                      </button>
                     ) : (
                       <span className="text-xs text-gray-400">—</span>
                     )}

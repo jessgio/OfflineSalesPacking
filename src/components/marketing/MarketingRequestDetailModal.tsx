@@ -4,9 +4,11 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ExternalLink, Loader2, Printer, Trash2, Truck, X } from "lucide-react";
 import { BiteshipStatusBadge } from "./BiteshipStatusBadge";
+import { BiteshipTrackingPanel } from "./BiteshipTrackingPanel";
 import { DashButton, cx } from "../dashboard/primitives";
 import { RequestChat } from "./RequestChat";
 import {
+  canTrackWithBiteship,
   courierNeedsActualShippingLabel,
   type MarketingRequest,
   type MarketingSession,
@@ -63,7 +65,7 @@ export function MarketingRequestDetailModal({
       aria-labelledby="marketing-request-detail-title"
     >
       <div
-        className="bg-white w-full sm:max-w-xl sm:rounded-2xl shadow-xl max-h-[92vh] overflow-y-auto rounded-t-2xl"
+        className="bg-white w-full sm:max-w-2xl sm:rounded-2xl shadow-xl max-h-[92vh] overflow-y-auto rounded-t-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-start justify-between gap-3">
@@ -202,6 +204,8 @@ export function MarketingRequestDetailModal({
               )}
             </DetailRow>
           )}
+
+          {canTrackWithBiteship(request) && <BiteshipTrackingPanel request={request} />}
 
           <RequestChat
             requestId={request.id}

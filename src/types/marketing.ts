@@ -62,6 +62,18 @@ export function canBookWithBiteship(request: {
   return isBiteshipEligibleCourier(request.preferred_courier);
 }
 
+/** Shipment has enough Biteship data to pull live tracking scans. */
+export function canTrackWithBiteship(request: {
+  biteship_order_id?: string | null;
+  actual_shipping_label?: string | null;
+  biteship_courier_company?: string | null;
+}): boolean {
+  if (request.biteship_order_id?.trim()) return true;
+  return !!(
+    request.actual_shipping_label?.trim() && request.biteship_courier_company?.trim()
+  );
+}
+
 export type MarketingUserRole = "requester" | "fulfillment" | "admin";
 
 export const REQUESTER_DIVISIONS = [
