@@ -14,6 +14,8 @@ Run these in the **Supabase SQL editor** before using **Master Box Shipping** (`
 
 **Biteship** (marketing fulfillment at `/marketing/fulfill`): set `BITESHIP_API_KEY`, `BITESHIP_ORIGIN_POSTAL_CODE`, `BITESHIP_ORIGIN_ADDRESS`, and `BITESHIP_SHIPPER_PHONE` in Vercel env. Optional: `BITESHIP_SHIPPER_NAME`, `BITESHIP_SHIPPER_EMAIL`.
 
+**Biteship webhooks** (automatic courier status sync): in the Biteship dashboard add webhook URL `https://YOUR-DOMAIN/api/biteship/webhook` with events `order.status` and `order.waybill_id`. Set optional header signature key `X-Biteship-Signature` and a secret value, then add `BITESHIP_WEBHOOK_SIGNATURE_KEY` and `BITESHIP_WEBHOOK_SIGNATURE_SECRET` to Vercel. Run `migrations/017_marketing_biteship_webhook.sql` after 016.
+
 **Chat:** mention users with `@email-handle` (part before @), e.g. `@marketing`, `@fulfillment`. Admin login: `fulfillment@aerisbeaute.com` / PIN `5910` (change in Supabase).
 
 If you already ran `001` before RLS disable was added, run `002` only.

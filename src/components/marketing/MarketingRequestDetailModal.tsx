@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ExternalLink, Loader2, Printer, Trash2, Truck, X } from "lucide-react";
+import { BiteshipStatusBadge } from "./BiteshipStatusBadge";
 import { DashButton, cx } from "../dashboard/primitives";
 import { RequestChat } from "./RequestChat";
 import {
@@ -177,12 +178,16 @@ export function MarketingRequestDetailModal({
 
           {request.biteship_order_id && (
             <DetailRow label="Biteship">
-              <p className="font-mono text-xs">{request.biteship_order_id}</p>
+              <BiteshipStatusBadge
+                status={request.biteship_status}
+                updatedAt={request.biteship_status_updated_at}
+                className="mb-2"
+              />
+              <p className="font-mono text-xs text-gray-600">{request.biteship_order_id}</p>
               {(request.biteship_courier_company || request.biteship_courier_type) && (
                 <p className="text-sm text-gray-700 mt-0.5">
                   {request.biteship_courier_company}
                   {request.biteship_courier_type ? ` · ${request.biteship_courier_type}` : ""}
-                  {request.biteship_status ? ` (${request.biteship_status})` : ""}
                 </p>
               )}
               {request.biteship_waybill_url && (

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, ChevronRight, Loader2, Trash2 } from "lucide-react";
+import { BiteshipStatusBadge } from "./BiteshipStatusBadge";
 import { DashButton, SurfaceCard, cx, fieldInput } from "../dashboard/primitives";
 import {
   updateMarketingActualShippingLabel,
@@ -297,6 +298,7 @@ export function MarketingShipmentsRegistry({
               <th className="px-3 py-3">Division</th>
               <th className="px-3 py-3">Recipient</th>
               <th className="px-3 py-3">Courier</th>
+              <th className="px-3 py-3">Biteship</th>
               <th className="px-3 py-3">Due</th>
               <th className="px-3 py-3 min-w-[180px]">Purpose</th>
               <th className="px-3 py-3 text-right">Items</th>
@@ -377,6 +379,16 @@ export function MarketingShipmentsRegistry({
                   </td>
                   <td className="px-3 py-3 text-gray-800 whitespace-nowrap">
                     {req.preferred_courier ?? "—"}
+                  </td>
+                  <td className="px-3 py-3">
+                    {req.biteship_order_id ? (
+                      <BiteshipStatusBadge
+                        status={req.biteship_status}
+                        updatedAt={req.biteship_status_updated_at}
+                      />
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatDue(req.due_date)}</td>
                   <td className="px-3 py-3">

@@ -158,6 +158,7 @@ export interface MarketingRequest {
   biteship_courier_type: string | null;
   biteship_waybill_url: string | null;
   biteship_status: string | null;
+  biteship_status_updated_at: string | null;
   created_at: string;
   items?: MarketingRequestItem[];
 }

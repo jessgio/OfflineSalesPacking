@@ -20,6 +20,7 @@ import {
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../../components/dashboard/primitives";
 import { ChatLoginBar } from "../../../components/marketing/ChatLoginBar";
 import { MarketingBiteshipModal } from "../../../components/marketing/MarketingBiteshipModal";
+import { BiteshipStatusBadge } from "../../../components/marketing/BiteshipStatusBadge";
 import { MarketingChatNotifications } from "../../../components/marketing/MarketingChatNotifications";
 import { MarketingNewOrdersBadge } from "../../../components/marketing/MarketingNewOrdersBadge";
 import { MarketingRequestDetailModal } from "../../../components/marketing/MarketingRequestDetailModal";
@@ -758,7 +759,7 @@ export default function MarketingFulfillPage() {
                   </span>
                 </div>
 
-                {(req.preferred_courier || req.due_date) && (
+                {(req.preferred_courier || req.due_date || req.biteship_order_id) && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {req.preferred_courier && (
                       <span className="text-xs font-bold uppercase px-2.5 py-1 rounded-full bg-violet-100 text-violet-800">
@@ -769,6 +770,12 @@ export default function MarketingFulfillPage() {
                       <span className="text-xs font-bold uppercase px-2.5 py-1 rounded-full bg-amber-100 text-amber-900">
                         Due {new Date(req.due_date + "T12:00:00").toLocaleDateString()}
                       </span>
+                    )}
+                    {req.biteship_order_id && (
+                      <BiteshipStatusBadge
+                        status={req.biteship_status}
+                        updatedAt={req.biteship_status_updated_at}
+                      />
                     )}
                   </div>
                 )}
