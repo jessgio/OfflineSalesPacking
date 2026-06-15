@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Loader2, Printer, Trash2, X } from "lucide-react";
+import { ExternalLink, Loader2, Printer, Trash2, Truck, X } from "lucide-react";
 import { DashButton, cx } from "../dashboard/primitives";
 import { RequestChat } from "./RequestChat";
 import {
@@ -40,6 +40,7 @@ export function MarketingRequestDetailModal({
   defaultOpenChat = false,
   onRead,
   onDelete,
+  onBookBiteship,
   deleting = false,
 }: {
   request: MarketingRequest;
@@ -49,6 +50,7 @@ export function MarketingRequestDetailModal({
   defaultOpenChat?: boolean;
   onRead?: () => void;
   onDelete?: () => void;
+  onBookBiteship?: () => void;
   deleting?: boolean;
 }) {
   return (
@@ -173,6 +175,29 @@ export function MarketingRequestDetailModal({
             </DetailRow>
           )}
 
+          {request.biteship_order_id && (
+            <DetailRow label="Biteship">
+              <p className="font-mono text-xs">{request.biteship_order_id}</p>
+              {(request.biteship_courier_company || request.biteship_courier_type) && (
+                <p className="text-sm text-gray-700 mt-0.5">
+                  {request.biteship_courier_company}
+                  {request.biteship_courier_type ? ` · ${request.biteship_courier_type}` : ""}
+                  {request.biteship_status ? ` (${request.biteship_status})` : ""}
+                </p>
+              )}
+              {request.biteship_waybill_url && (
+                <a
+                  href={request.biteship_waybill_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm font-semibold text-violet-700 hover:underline mt-1"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Open waybill
+                </a>
+              )}
+            </DetailRow>
+          )}
+
           <RequestChat
             requestId={request.id}
             packageLabel={`${request.recipient_name} · ${request.barcode}`}
@@ -183,6 +208,17 @@ export function MarketingRequestDetailModal({
           />
 
           <div className="flex flex-col gap-2">
+            {onBookBiteship && (
+              <DashButton
+                type="button"
+                variant="pink"
+                size="md"
+                className="w-full"
+                onClick={onBookBiteship}
+              >
+                <Truck className="w-4 h-4" /> Book with Biteship
+              </DashButton>
+            )}
             <Link href={`/marketing/labels/${request.id}`} className="block">
               <DashButton variant="primary" size="md" className="w-full">
                 <Printer className="w-4 h-4" /> Reprint label

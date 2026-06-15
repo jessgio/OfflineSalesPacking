@@ -417,30 +417,50 @@ export function MarketingShipmentsRegistry({
                     )}
                   </td>
                   <td className="px-3 py-3">
-                    {!needsLabel ? (
+                    {!needsLabel && !req.biteship_order_id ? (
                       <span className="text-xs text-gray-500 italic">N/A ({req.preferred_courier ?? "—"})</span>
                     ) : (
-                      <RegistryInlineField
-                        draft={labelDraft}
-                        savedValue={req.actual_shipping_label ?? ""}
-                        placeholder="Tracking / label ref"
-                        canEdit={canEditLabel(req)}
-                        isSaving={savingLabel}
-                        isDirty={labelDirty}
-                        mono
-                        error={cellErrors[cellErrorKey(req.id, "label")]}
-                        savedMeta={
-                          req.actual_shipping_label_at ? (
-                            <p className="text-[10px] text-gray-500">
-                              {req.actual_shipping_label_by} · {formatWhen(req.actual_shipping_label_at)}
-                            </p>
-                          ) : undefined
-                        }
-                        onDraftChange={(value) =>
-                          setLabelDrafts((prev) => ({ ...prev, [req.id]: value }))
-                        }
-                        onSave={() => handleSaveLabel(req)}
-                      />
+                      <div className="space-y-1">
+                        {req.biteship_order_id && (
+                          <p className="text-[10px] text-orange-800 font-semibold">
+                            Biteship · {req.biteship_courier_company ?? "booked"}
+                          </p>
+                        )}
+                        <RegistryInlineField
+                          draft={labelDraft}
+                          savedValue={req.actual_shipping_label ?? ""}
+                          placeholder="Tracking / label ref"
+                          canEdit={canEditLabel(req)}
+                          isSaving={savingLabel}
+                          isDirty={labelDirty}
+                          mono
+                          error={cellErrors[cellErrorKey(req.id, "label")]}
+                          savedMeta={
+                            <>
+                              {req.actual_shipping_label_at && (
+                                <p className="text-[10px] text-gray-500">
+                                  {req.actual_shipping_label_by} · {formatWhen(req.actual_shipping_label_at)}
+                                </p>
+                              )}
+                              {req.biteship_waybill_url && (
+                                <a
+                                  href={req.biteship_waybill_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] font-semibold text-violet-700 hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  Open waybill
+                                </a>
+                              )}
+                            </>
+                          }
+                          onDraftChange={(value) =>
+                            setLabelDrafts((prev) => ({ ...prev, [req.id]: value }))
+                          }
+                          onSave={() => handleSaveLabel(req)}
+                        />
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-3">

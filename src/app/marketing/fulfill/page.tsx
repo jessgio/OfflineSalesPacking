@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../../components/dashboard/primitives";
 import { ChatLoginBar } from "../../../components/marketing/ChatLoginBar";
+import { MarketingBiteshipModal } from "../../../components/marketing/MarketingBiteshipModal";
 import { MarketingChatNotifications } from "../../../components/marketing/MarketingChatNotifications";
 import { MarketingNewOrdersBadge } from "../../../components/marketing/MarketingNewOrdersBadge";
 import { MarketingRequestDetailModal } from "../../../components/marketing/MarketingRequestDetailModal";
@@ -29,7 +30,8 @@ import { useMarketingChatUnread } from "../../../hooks/useMarketingChatUnread";
 import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrders";
 import { getMarketingSession } from "../../../lib/marketingAuth";
 import { canDeleteMarketingShipment, canFulfill, isAdmin } from "../../../lib/marketingRoles";
-import type { MarketingSession } from "../../../types/marketing";
+import type { MarketingRequest, MarketingSession } from "../../../types/marketing";
+import { canBookWithBiteship } from "../../../types/marketing";
 import {
   deleteMarketingRequest,
   deleteMarketingRequestsBulk,
@@ -44,7 +46,6 @@ import {
 } from "../../../lib/marketingDb";
 import { downloadMarketingHistoryExport } from "../../../lib/marketingExport";
 import { isMarketingBarcode } from "../../../lib/marketingBarcode";
-import type { MarketingRequest } from "../../../types/marketing";
 
 const tabBtnBase = "px-4 py-2.5 text-sm font-bold border-b-2 transition";
 
@@ -106,6 +107,7 @@ export default function MarketingFulfillPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewingRequestId, setViewingRequestId] = useState<string | null>(null);
   const [openChatForRequestId, setOpenChatForRequestId] = useState<string | null>(null);
+  const [biteshipRequest, setBiteshipRequest] = useState<MarketingRequest | null>(null);
   const { totalUnread, unreadByRequestId, notifications, refreshUnread } = useMarketingChatUnread(chatSession);
   const { totalUnseen, unseenByRequestId, refreshUnseen } = useMarketingUnseenOrders(chatSession);
 
@@ -811,14 +813,26 @@ export default function MarketingFulfillPage() {
                     </DashButton>
                   </Link>
                   {req.status === "packed" && (
-                    <DashButton
-                      variant="success"
-                      size="md"
-                      onClick={() => handleMarkShipped(req.id)}
-                      className="flex-1 min-w-[120px]"
-                    >
-                      <Truck className="w-4 h-4" /> Shipped
-                    </DashButton>
+                    <>
+                      {canBookWithBiteship(req) && (
+                        <DashButton
+                          variant="pink"
+                          size="md"
+                          onClick={() => setBiteshipRequest(req)}
+                          className="flex-1 min-w-[120px]"
+                        >
+                          <Truck className="w-4 h-4" /> Biteship
+                        </DashButton>
+                      )}
+                      <DashButton
+                        variant="success"
+                        size="md"
+                        onClick={() => handleMarkShipped(req.id)}
+                        className="flex-1 min-w-[120px]"
+                      >
+                        <Truck className="w-4 h-4" /> Shipped
+                      </DashButton>
+                    </>
                   )}
                 </div>
               </SurfaceCard>
@@ -923,6 +937,18 @@ export default function MarketingFulfillPage() {
         </div>
       )}
 
+      {biteshipRequest && (
+        <MarketingBiteshipModal
+          request={biteshipRequest}
+          packerName={packerName}
+          onClose={() => setBiteshipRequest(null)}
+          onBooked={() => {
+            setBiteshipRequest(null);
+            void loadQueue(true);
+          }}
+        />
+      )}
+
       {viewingRequest && (
         <MarketingRequestDetailModal
           request={viewingRequest}
@@ -938,6 +964,9 @@ export default function MarketingFulfillPage() {
             chatSession && canDeleteMarketingShipment(chatSession, viewingRequest)
               ? () => handleDeleteRequest(viewingRequest)
               : undefined
+          }
+          onBookBiteship={
+            canBookWithBiteship(viewingRequest) ? () => setBiteshipRequest(viewingRequest) : undefined
           }
           deleting={deletingId === viewingRequest.id}
         />

@@ -1,0 +1,348 @@
+import type { MarketingCourier } from "../types/marketing";
+
+const BITESHIP_API_BASE = "https://api.biteship.com/v1";
+
+export interface BiteshipConfig {
+  apiKey: string;
+  originPostalCode: number;
+  originAddress: string;
+  shipperName: string;
+  shipperPhone: string;
+  shipperEmail: string | null;
+}
+
+export interface BiteshipPackageInput {
+  weightGrams: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  valueIdr: number;
+}
+
+export interface BiteshipRateOption {
+  courierCompany: string;
+  courierCompanyName: string;
+  courierType: string;
+  courierTypeName: string;
+  price: number;
+  duration: string;
+  matchesPreference: boolean;
+}
+
+export interface BiteshipCreateOrderResult {
+  orderId: string;
+  status: string;
+  trackingId: string | null;
+  waybillUrl: string | null;
+  courierCompany: string;
+  courierType: string;
+  price: number | null;
+}
+
+export function isBiteshipConfigured(): boolean {
+  return !!(
+    process.env.BITESHIP_API_KEY?.trim() &&
+    process.env.BITESHIP_ORIGIN_POSTAL_CODE?.trim() &&
+    process.env.BITESHIP_ORIGIN_ADDRESS?.trim() &&
+    process.env.BITESHIP_SHIPPER_PHONE?.trim()
+  );
+}
+
+export function getBiteshipConfig(): BiteshipConfig {
+  const apiKey = process.env.BITESHIP_API_KEY?.trim();
+  const originPostalCode = parsePostalCode(process.env.BITESHIP_ORIGIN_POSTAL_CODE);
+  const originAddress = process.env.BITESHIP_ORIGIN_ADDRESS?.trim();
+  const shipperPhone = process.env.BITESHIP_SHIPPER_PHONE?.trim();
+
+  if (!apiKey) throw new Error("BITESHIP_API_KEY is not configured.");
+  if (!originPostalCode) throw new Error("BITESHIP_ORIGIN_POSTAL_CODE is not configured.");
+  if (!originAddress) throw new Error("BITESHIP_ORIGIN_ADDRESS is not configured.");
+  if (!shipperPhone) throw new Error("BITESHIP_SHIPPER_PHONE is not configured.");
+
+  return {
+    apiKey,
+    originPostalCode,
+    originAddress,
+    shipperName: process.env.BITESHIP_SHIPPER_NAME?.trim() || "Aeris Beaute",
+    shipperPhone,
+    shipperEmail: process.env.BITESHIP_SHIPPER_EMAIL?.trim() || null,
+  };
+}
+
+export function parsePostalCode(value: string | null | undefined): number | null {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (digits.length < 5) return null;
+  const parsed = Number.parseInt(digits.slice(0, 5), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizePhone(phone: string | null | undefined): string {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (!digits) return "08123456789";
+  if (digits.startsWith("62")) return `0${digits.slice(2)}`;
+  if (digits.startsWith("0")) return digits;
+  return `0${digits}`;
+}
+
+function buildDestinationAddress(parts: {
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  state: string;
+}): string {
+  return [parts.addressLine1, parts.addressLine2, parts.city, parts.state]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function buildItemsPayload(
+  items: Array<{ product_name: string; qty: number }>,
+  pkg: BiteshipPackageInput
+) {
+  const primaryName =
+    items.length === 1
+      ? items[0].product_name
+      : items.length > 1
+        ? `Marketing goods (${items.length} SKUs)`
+        : "Marketing goods";
+
+  return [
+    {
+      name: primaryName.slice(0, 255),
+      description: items.map((item) => `${item.qty}× ${item.product_name}`).join(", ").slice(0, 500),
+      category: "others",
+      value: pkg.valueIdr,
+      quantity: 1,
+      length: pkg.lengthCm,
+      width: pkg.widthCm,
+      height: pkg.heightCm,
+      weight: pkg.weightGrams,
+    },
+  ];
+}
+
+async function biteshipFetch<T>(path: string, init: RequestInit): Promise<T> {
+  const config = getBiteshipConfig();
+  const response = await fetch(`${BITESHIP_API_BASE}${path}`, {
+    ...init,
+    headers: {
+      authorization: config.apiKey,
+      "content-type": "application/json",
+      ...(init.headers ?? {}),
+    },
+  });
+
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!response.ok) {
+    const message =
+      (typeof body.error === "string" && body.error) ||
+      (typeof body.message === "string" && body.message) ||
+      `Biteship request failed (${response.status})`;
+    throw new Error(message);
+  }
+
+  return body as T;
+}
+
+type RawPricing = {
+  available_for_cash_on_delivery?: boolean;
+  available_for_proof_of_delivery?: boolean;
+  available_for_instant_waybill_id?: boolean;
+  available_for_insurance?: boolean;
+  company?: string;
+  courier_name?: string;
+  courier_code?: string;
+  courier_service_name?: string;
+  courier_service_code?: string;
+  description?: string;
+  duration?: string;
+  shipment_duration_range?: { minimum?: number; maximum?: number };
+  service_type?: string;
+  shipping_type?: string;
+  price?: number;
+  type?: string;
+};
+
+type RatesResponse = {
+  success?: boolean;
+  pricing?: RawPricing[];
+};
+
+function formatDuration(rate: RawPricing): string {
+  if (rate.duration?.trim()) return rate.duration.trim();
+  const min = rate.shipment_duration_range?.minimum;
+  const max = rate.shipment_duration_range?.maximum;
+  if (min != null && max != null) return `${min}–${max} days`;
+  if (min != null) return `${min} days`;
+  return "—";
+}
+
+/** Map portal courier preference to Biteship service type codes. */
+export function biteshipServiceTypesForPreference(
+  courier: MarketingCourier | null | undefined
+): string[] | null {
+  switch (courier) {
+    case "Instant":
+      return ["instant", "instant_bike", "instant_car", "instant_motorcycle"];
+    case "Same Day":
+      return ["same_day", "sds", "smd", "q9_same_day", "SAME_DAY"];
+    case "Regular":
+      return ["reg", "regular", "next_day", "standard", "ez"];
+    case "Kargo":
+      return ["cargo", "gokil", "jtr", "jtr_150", "jtr_250", "trc"];
+    default:
+      return null;
+  }
+}
+
+function rateMatchesPreference(
+  rate: RawPricing,
+  preferredTypes: string[] | null
+): boolean {
+  if (!preferredTypes) return false;
+  const serviceCode = (rate.courier_service_code ?? rate.type ?? "").toLowerCase();
+  return preferredTypes.some((type) => serviceCode === type.toLowerCase());
+}
+
+export async function fetchBiteshipRates(input: {
+  destinationPostalCode: number;
+  preferredCourier: MarketingCourier | null;
+  items: Array<{ product_name: string; qty: number }>;
+  package: BiteshipPackageInput;
+}): Promise<BiteshipRateOption[]> {
+  const config = getBiteshipConfig();
+  const preferredTypes = biteshipServiceTypesForPreference(input.preferredCourier);
+
+  const payload = {
+    origin_postal_code: config.originPostalCode,
+    destination_postal_code: input.destinationPostalCode,
+    items: buildItemsPayload(input.items, input.package),
+  };
+
+  const data = await biteshipFetch<RatesResponse>("/rates/couriers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  const preferredTypeSet = preferredTypes?.map((t) => t.toLowerCase()) ?? null;
+
+  const options = (data.pricing ?? [])
+    .filter((rate) => rate.courier_code && rate.courier_service_code && rate.price != null)
+    .map((rate) => ({
+      courierCompany: rate.courier_code!,
+      courierCompanyName: rate.courier_name ?? rate.courier_code!,
+      courierType: rate.courier_service_code!,
+      courierTypeName: rate.courier_service_name ?? rate.courier_service_code!,
+      price: rate.price!,
+      duration: formatDuration(rate),
+      matchesPreference: rateMatchesPreference(rate, preferredTypes),
+    }))
+    .sort((a, b) => {
+      if (a.matchesPreference !== b.matchesPreference) {
+        return a.matchesPreference ? -1 : 1;
+      }
+      return a.price - b.price;
+    });
+
+  if (preferredTypeSet && options.some((o) => o.matchesPreference)) {
+    return options;
+  }
+
+  return options;
+}
+
+type CreateOrderResponse = {
+  success?: boolean;
+  id?: string;
+  status?: string;
+  price?: number;
+  courier?: {
+    tracking_id?: string | null;
+    company?: string;
+    type?: string;
+    link?: string | null;
+    waybill_id?: string | null;
+  };
+};
+
+export async function createBiteshipOrder(input: {
+  referenceId: string;
+  destination: {
+    contactName: string;
+    contactPhone: string | null;
+    postalCode: number;
+    addressLine1: string;
+    addressLine2: string | null;
+    city: string;
+    state: string;
+    note: string | null;
+  };
+  courierCompany: string;
+  courierType: string;
+  items: Array<{ product_name: string; qty: number }>;
+  package: BiteshipPackageInput;
+  orderNote?: string | null;
+}): Promise<BiteshipCreateOrderResult> {
+  const config = getBiteshipConfig();
+  const destinationAddress = buildDestinationAddress({
+    addressLine1: input.destination.addressLine1,
+    addressLine2: input.destination.addressLine2,
+    city: input.destination.city,
+    state: input.destination.state,
+  });
+  const shipperPhone = normalizePhone(config.shipperPhone);
+  const destinationPhone = normalizePhone(input.destination.contactPhone);
+
+  const payload: Record<string, unknown> = {
+    shipper_contact_name: config.shipperName,
+    shipper_contact_phone: shipperPhone,
+    origin_contact_name: config.shipperName,
+    origin_contact_phone: shipperPhone,
+    origin_postal_code: config.originPostalCode,
+    origin_address: config.originAddress,
+    destination_contact_name: input.destination.contactName,
+    destination_contact_phone: destinationPhone,
+    destination_postal_code: input.destination.postalCode,
+    destination_address: destinationAddress,
+    destination_note: input.destination.note,
+    courier_company: input.courierCompany,
+    courier_type: input.courierType,
+    delivery_type: "now",
+    reference_id: input.referenceId,
+    order_note: input.orderNote ?? undefined,
+    metadata: { source: "aeris-marketing-fulfill" },
+    items: buildItemsPayload(input.items, input.package),
+  };
+
+  if (config.shipperEmail) {
+    payload.shipper_contact_email = config.shipperEmail;
+  }
+
+  const data = await biteshipFetch<CreateOrderResponse>("/orders", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  if (!data.id) {
+    throw new Error("Biteship did not return an order ID.");
+  }
+
+  return {
+    orderId: data.id,
+    status: data.status ?? "confirmed",
+    trackingId: data.courier?.tracking_id ?? data.courier?.waybill_id ?? null,
+    waybillUrl: data.courier?.link ?? null,
+    courierCompany: data.courier?.company ?? input.courierCompany,
+    courierType: data.courier?.type ?? input.courierType,
+    price: data.price ?? null,
+  };
+}
+
+export function formatIdr(amount: number): string {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
