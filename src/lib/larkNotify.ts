@@ -175,6 +175,46 @@ export async function sendLarkMarketingChat(params: {
   });
 }
 
+export async function sendLarkNewRequestAlert(params: {
+  barcode: string;
+  recipientName: string;
+  purpose: string;
+  requestedByName: string;
+  requestedByDivision: string;
+  dueDate: string;
+  preferredCourier: string;
+  itemSummary: string;
+  dashboardUrl: string;
+}): Promise<void> {
+  await sendLarkCard({
+    header: {
+      template: "orange",
+      title: {
+        tag: "plain_text",
+        content: `New marketing request — ${params.barcode}`,
+      },
+    },
+    elements: [
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: mdLines([
+            mdField("Recipient", params.recipientName),
+            mdField("Purpose", params.purpose),
+            mdField("Requested by", params.requestedByName),
+            mdField("Division", params.requestedByDivision),
+            mdField("Due date", params.dueDate),
+            mdField("Courier", params.preferredCourier),
+            mdField("Items", params.itemSummary),
+          ]),
+        },
+      },
+      dashboardButton(params.dashboardUrl, "Open fulfillment queue"),
+    ],
+  });
+}
+
 export async function sendLarkShippedAlert(params: {
   barcode: string;
   status: string;

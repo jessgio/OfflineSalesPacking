@@ -111,6 +111,14 @@ function groupRequestsByPurpose(requests: MarketingRequest[]): PurposeGroup[] {
     }));
 }
 
+function notifyNewMarketingRequest(requestId: string): void {
+  void fetch("/api/marketing-request/notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId }),
+  });
+}
+
 export default function MarketingPage() {
   const [session, setSession] = useState<MarketingSession | null>(null);
   const [booting, setBooting] = useState(true);
@@ -415,6 +423,9 @@ export default function MarketingPage() {
     try {
       const { created, errors } = await createMarketingRequestsBulk(session, importPackages);
       if (created.length > 0) {
+        for (const request of created) {
+          notifyNewMarketingRequest(request.id);
+        }
         setImportSuccess(
           `Imported ${created.length} package${created.length === 1 ? "" : "s"} (${created.map((r) => r.barcode).join(", ")}).`
         );
@@ -472,6 +483,7 @@ export default function MarketingPage() {
         setSubmitSuccess(`Request updated (${updated.barcode}).`);
       } else {
         const created = await createMarketingRequest(session, payload);
+        notifyNewMarketingRequest(created.id);
         setSubmitSuccess(`Request submitted. Barcode ${created.barcode} — the offline team will print the shipping label.`);
       }
 
