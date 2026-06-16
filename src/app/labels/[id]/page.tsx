@@ -103,7 +103,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
         <SurfaceCard className="p-8 text-center max-w-md w-full">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">No Labels Found</h2>
           <p className="text-gray-600 mb-6">There are no inner boxes registered for this PO.</p>
-          <Link href="/">
+          <Link href="/dashboard">
              <DashButton variant="primary" size="md" className="px-6 w-full">
                Return Home
              </DashButton>
@@ -117,7 +117,7 @@ export default function LabelPrinter(props: { params: Promise<{ id: string }> })
     <div className={`${thermalLabelPageClass} bg-gray-100`}>
       <div className="bg-white border-b px-8 py-4 flex justify-between items-center shadow-sm z-10 sticky top-0 print:hidden">
         <div className="flex items-center gap-4">
-          <Link href="/">
+          <Link href="/dashboard">
             <DashButton variant="ghost" size="sm" className="p-2 bg-gray-100 hover:bg-gray-200">
               <ArrowLeft className="w-5 h-5" />
             </DashButton>

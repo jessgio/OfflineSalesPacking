@@ -585,7 +585,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
           <Link href={`/plan/${poId}`} className="block bg-pink-600 text-white py-3 rounded-lg font-bold mb-3">
             Plan Inner Boxes
           </Link>
-          <Link href="/" className="text-gray-600 text-sm">
+          <Link href="/dashboard" className="text-gray-600 text-sm">
             Back to dashboard
           </Link>
         </div>
@@ -607,7 +607,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
             <DashButton type="submit" variant="primary" size="lg" className="w-full rounded-xl py-4">Unlock Station</DashButton>
           </form>
           <div className="mt-6 border-t pt-6">
-             <Link href="/"><DashButton variant="ghost" size="sm" className="text-gray-600 font-medium hover:text-gray-600">← Back to Dashboard</DashButton></Link>
+             <Link href="/dashboard"><DashButton variant="ghost" size="sm" className="text-gray-600 font-medium hover:text-gray-600">← Back to Dashboard</DashButton></Link>
           </div>
         </div>
       </div>
@@ -651,7 +651,7 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
 
         <header className="bg-white border-b px-8 py-4 flex justify-between items-center shadow-sm z-10 sticky top-0">
           <div className="flex items-center gap-4">
-            <Link href="/"><DashButton variant="ghost" size="sm" className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200"><ArrowLeft className="w-5 h-5 text-gray-700" /></DashButton></Link>
+            <Link href="/dashboard"><DashButton variant="ghost" size="sm" className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200"><ArrowLeft className="w-5 h-5 text-gray-700" /></DashButton></Link>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 border-b pb-2 mb-2">PO: {po.po_number}</h1>
               <div className="flex gap-6 items-center text-sm font-medium">

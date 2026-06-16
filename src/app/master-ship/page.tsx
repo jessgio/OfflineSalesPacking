@@ -182,7 +182,7 @@ export default function MasterShipHome() {
 
   return (
     <MasterShipShell className={selectedPoIds.length > 0 ? "pb-32" : "pb-12"}>
-      <BackLink href="/" label="Fulfillment Dashboard" />
+      <BackLink href="/dashboard" label="Fulfillment Dashboard" />
       <PageTitle
         title="Master Box Shipping"
         subtitle="Group multiple POs into outbound master cartons. Print master labels, scan inner LPNs into each master, then export a shipment manifest."

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Archive,
@@ -9,6 +10,7 @@ import {
   Download,
   List,
   Loader2,
+  LogOut,
   Package,
   PackageCheck,
   Printer,
@@ -18,7 +20,6 @@ import {
   X,
 } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard, cx, fieldInput } from "../../../components/dashboard/primitives";
-import { ChatLoginBar } from "../../../components/marketing/ChatLoginBar";
 import { MarketingBiteshipModal } from "../../../components/marketing/MarketingBiteshipModal";
 import { BiteshipStatusBadge } from "../../../components/marketing/BiteshipStatusBadge";
 import { MarketingChatNotifications } from "../../../components/marketing/MarketingChatNotifications";
@@ -29,8 +30,8 @@ import { RequestChat } from "../../../components/marketing/RequestChat";
 import { useAutoRefresh } from "../../../hooks/useAutoRefresh";
 import { useMarketingChatUnread } from "../../../hooks/useMarketingChatUnread";
 import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrders";
-import { getMarketingSession } from "../../../lib/marketingAuth";
-import { canDeleteMarketingShipment, canFulfill, isAdmin } from "../../../lib/marketingRoles";
+import { clearMarketingSession, getMarketingSession, setMarketingSession } from "../../../lib/marketingAuth";
+import { canAccessFulfillPortal, canDeleteMarketingShipment, canFulfill, isAdmin, roleLabel } from "../../../lib/marketingRoles";
 import type { MarketingRequest, MarketingSession } from "../../../types/marketing";
 import { canBookWithBiteship, canTrackWithBiteship } from "../../../types/marketing";
 import {
@@ -44,6 +45,7 @@ import {
   markMarketingRequestSeenByAdmin,
   markMarketingRequestsPackedBulk,
   markMarketingRequestShipped,
+  refreshMarketingSession,
 } from "../../../lib/marketingDb";
 import { downloadMarketingHistoryExport } from "../../../lib/marketingExport";
 import { isMarketingBarcode } from "../../../lib/marketingBarcode";
@@ -88,6 +90,7 @@ function isOtherEditableFocused(scanInput: HTMLInputElement | null): boolean {
 }
 
 export default function MarketingFulfillPage() {
+  const router = useRouter();
   const [moduleTab, setModuleTab] = useState<"ACTIVE" | "HISTORY" | "SHIPMENTS">("ACTIVE");
   const [requests, setRequests] = useState<MarketingRequest[]>([]);
   const [completedRequests, setCompletedRequests] = useState<MarketingRequest[]>([]);
@@ -103,6 +106,7 @@ export default function MarketingFulfillPage() {
   const scanInFlight = useRef(false);
   const lastScanRef = useRef({ code: "", at: 0 });
   const [chatSession, setChatSession] = useState<MarketingSession | null>(null);
+  const [authBooting, setAuthBooting] = useState(true);
   const [batchPacking, setBatchPacking] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -118,8 +122,36 @@ export default function MarketingFulfillPage() {
   }, []);
 
   useEffect(() => {
-    setChatSession(getMarketingSession());
+    const stored = getMarketingSession();
+    if (!stored) {
+      setAuthBooting(false);
+      return;
+    }
+    void refreshMarketingSession(stored)
+      .then((refreshed) => {
+        setMarketingSession(refreshed);
+        setChatSession(refreshed);
+      })
+      .catch(() => {
+        setChatSession(stored);
+      })
+      .finally(() => {
+        setAuthBooting(false);
+      });
   }, []);
+
+  useEffect(() => {
+    if (authBooting) return;
+    if (!chatSession) {
+      router.replace("/?portal=fulfill");
+    }
+  }, [authBooting, chatSession, router]);
+
+  const handleLogout = () => {
+    clearMarketingSession();
+    setChatSession(null);
+    router.push("/");
+  };
 
   const loadQueue = useCallback(async (silent = false) => {
     if (!silent) {
@@ -415,6 +447,35 @@ export default function MarketingFulfillPage() {
   ).length;
   const viewingRequest = allRequests.find((req) => req.id === viewingRequestId) ?? null;
 
+  if (authBooting || !chatSession) {
+    return (
+      <CenteredPage>
+        <Loader2 className="animate-spin w-10 h-10 text-violet-600" />
+      </CenteredPage>
+    );
+  }
+
+  if (!canAccessFulfillPortal(chatSession)) {
+    return (
+      <CenteredPage>
+        <SurfaceCard className="p-8 w-full max-w-md text-center">
+          <h1 className="text-xl font-black text-gray-900 mb-2">Requester account</h1>
+          <p className="text-sm text-gray-600 mb-6">
+            Your account ({roleLabel(chatSession.role)}) is set up for submitting requests, not packing.
+          </p>
+          <Link href="/?portal=marketing">
+            <DashButton variant="primary" size="lg">
+              Go to marketing portal
+            </DashButton>
+          </Link>
+          <DashButton variant="ghost" size="sm" className="mt-4" onClick={handleLogout}>
+            <LogOut className="w-4 h-4" /> Sign out
+          </DashButton>
+        </SurfaceCard>
+      </CenteredPage>
+    );
+  }
+
   return (
     <div className={cx("min-h-screen bg-gray-100", selectedIds.length > 0 ? "pb-28" : "pb-12")}>
       <header className="bg-white border-b sticky top-0 z-10 shadow-sm">
@@ -440,6 +501,10 @@ export default function MarketingFulfillPage() {
             <div className="text-sm font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
               {pendingCount} pending
             </div>
+            <span className="text-sm text-gray-600 hidden sm:block">{chatSession.displayName}</span>
+            <DashButton variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut className="w-4 h-4" /> Sign out
+            </DashButton>
           </div>
         </div>
       </header>
@@ -450,8 +515,6 @@ export default function MarketingFulfillPage() {
           moduleTab === "SHIPMENTS" ? "max-w-7xl" : "max-w-5xl"
         )}
       >
-        <ChatLoginBar session={chatSession} onSessionChange={setChatSession} />
-
         <div className="flex gap-2 border-b border-gray-200">
           <button
             type="button"

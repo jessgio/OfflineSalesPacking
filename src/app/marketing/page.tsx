@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Loader2,
   LogOut,
-  Package,
   Plus,
   Send,
   Trash2,
@@ -35,7 +35,6 @@ import {
   fetchMarketingRequestPurposes,
   fetchMarketingRequestsByUser,
   fetchAllMarketingRequestsForRegistry,
-  loginMarketingUser,
   refreshMarketingSession,
   searchProducts,
   updateMarketingRequest,
@@ -120,13 +119,9 @@ function notifyNewMarketingRequest(requestId: string): void {
 }
 
 export default function MarketingPage() {
+  const router = useRouter();
   const [session, setSession] = useState<MarketingSession | null>(null);
   const [booting, setBooting] = useState(true);
-
-  const [email, setEmail] = useState("");
-  const [pin, setPin] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [loggingIn, setLoggingIn] = useState(false);
 
   const [requests, setRequests] = useState<MarketingRequest[]>([]);
   const [dashboardRequests, setDashboardRequests] = useState<MarketingRequest[]>([]);
@@ -194,6 +189,13 @@ export default function MarketingPage() {
       });
   }, []);
 
+  useEffect(() => {
+    if (booting) return;
+    if (!session) {
+      router.replace("/?portal=marketing");
+    }
+  }, [booting, router, session]);
+
   const loadRequests = useCallback(
     async (silent = false) => {
       if (!session) return;
@@ -258,26 +260,10 @@ export default function MarketingPage() {
     return () => clearTimeout(timer);
   }, [activeLookupIndex, items]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError("");
-    setLoggingIn(true);
-    try {
-      const s = await loginMarketingUser(email, pin);
-      setMarketingSession(s);
-      setSession(s);
-      setPin("");
-    } catch (err: unknown) {
-      setLoginError(err instanceof Error ? err.message : "Login failed");
-    } finally {
-      setLoggingIn(false);
-    }
-  };
-
   const handleLogout = () => {
     clearMarketingSession();
     setSession(null);
-    setRequests([]);
+    router.push("/");
   };
 
   const addItem = () => {
@@ -514,59 +500,10 @@ export default function MarketingPage() {
     portalTab === "shipments" || portalTab === "dashboard" || portalTab === "summary";
   const portalMaxWidth = isWidePortal ? "max-w-7xl" : "max-w-3xl";
 
-  if (booting) {
+  if (booting || !session) {
     return (
       <CenteredPage>
         <Loader2 className="animate-spin w-10 h-10 text-violet-600" />
-      </CenteredPage>
-    );
-  }
-
-  if (!session) {
-    return (
-      <CenteredPage>
-        <SurfaceCard className="p-8 w-full max-w-md">
-          <div className="text-center mb-8">
-            <div className="w-14 h-14 bg-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Package className="w-7 h-7 text-violet-700" />
-            </div>
-            <h1 className="text-2xl font-black text-gray-900">Marketing Requests</h1>
-            <p className="text-gray-600 mt-2 text-sm">
-              Sign in with your team email and PIN. Marketing, R&amp;D, Leadership, and other divisions can submit requests here.
-            </p>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Email</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={fieldInput}
-                placeholder="marketing@aerisbeaute.com"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-700 mb-1">PIN</label>
-              <input
-                type="password"
-                required
-                inputMode="numeric"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                className={fieldInput}
-                placeholder="••••"
-              />
-            </div>
-            {loginError && <p className="text-sm text-red-600 font-medium">{loginError}</p>}
-            <DashButton type="submit" variant="pink" size="lg" className="w-full" disabled={loggingIn}>
-              {loggingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Sign In
-            </DashButton>
-          </form>
-        </SurfaceCard>
       </CenteredPage>
     );
   }
@@ -579,13 +516,13 @@ export default function MarketingPage() {
           <p className="text-sm text-gray-600 mb-6">
             Your account ({roleLabel(session.role)}) is set up for the packing portal, not submitting requests.
           </p>
-          <Link href="/marketing/fulfill">
+          <Link href="/?portal=fulfill">
             <DashButton variant="primary" size="lg">
               Go to packing portal
             </DashButton>
           </Link>
           <DashButton variant="ghost" size="sm" className="mt-4" onClick={handleLogout}>
-            <LogOut className="w-4 h-4" /> Log out
+            <LogOut className="w-4 h-4" /> Sign out
           </DashButton>
         </SurfaceCard>
       </CenteredPage>
