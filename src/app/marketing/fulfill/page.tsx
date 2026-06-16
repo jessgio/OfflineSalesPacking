@@ -32,7 +32,7 @@ import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrder
 import { getMarketingSession } from "../../../lib/marketingAuth";
 import { canDeleteMarketingShipment, canFulfill, isAdmin } from "../../../lib/marketingRoles";
 import type { MarketingRequest, MarketingSession } from "../../../types/marketing";
-import { canBookWithBiteship } from "../../../types/marketing";
+import { canBookWithBiteship, canTrackWithBiteship } from "../../../types/marketing";
 import {
   deleteMarketingRequest,
   deleteMarketingRequestsBulk,
@@ -819,6 +819,13 @@ export default function MarketingFulfillPage() {
                       <Printer className="w-4 h-4" /> Print label
                     </DashButton>
                   </Link>
+                  {canTrackWithBiteship(req) && (
+                    <Link href={`/marketing/labels/biteship/${req.id}`} className="flex-1 min-w-[120px]">
+                      <DashButton variant="pink" size="md" className="w-full">
+                        <Printer className="w-4 h-4" /> Carrier label
+                      </DashButton>
+                    </Link>
+                  )}
                   {req.status === "packed" && (
                     <>
                       {canBookWithBiteship(req) && (

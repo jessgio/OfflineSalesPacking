@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, Loader2, Package, Truck, X } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, Loader2, Package, Printer, Truck, X } from "lucide-react";
 import { DashButton, cx, fieldInput } from "../dashboard/primitives";
 import type { MarketingRequest } from "../../types/marketing";
 
@@ -218,11 +219,16 @@ export function MarketingBiteshipModal({
                   rel="noopener noreferrer"
                   className="block"
                 >
-                  <DashButton variant="primary" size="md" className="w-full">
+                  <DashButton variant="subtle" size="md" className="w-full">
                     <ExternalLink className="w-4 h-4" /> Open carrier waybill
                   </DashButton>
                 </a>
               )}
+              <Link href={`/marketing/labels/biteship/${request.id}`} className="block">
+                <DashButton variant="primary" size="md" className="w-full">
+                  <Printer className="w-4 h-4" /> Print carrier label
+                </DashButton>
+              </Link>
               <DashButton variant="subtle" size="md" className="w-full" onClick={onClose}>
                 Done
               </DashButton>

@@ -228,9 +228,16 @@ export function MarketingRequestDetailModal({
                 <Truck className="w-4 h-4" /> Book with Biteship
               </DashButton>
             )}
+            {canTrackWithBiteship(request) && (
+              <Link href={`/marketing/labels/biteship/${request.id}`} className="block">
+                <DashButton variant="pink" size="md" className="w-full">
+                  <Printer className="w-4 h-4" /> Print Biteship label
+                </DashButton>
+              </Link>
+            )}
             <Link href={`/marketing/labels/${request.id}`} className="block">
               <DashButton variant="primary" size="md" className="w-full">
-                <Printer className="w-4 h-4" /> Reprint label
+                <Printer className="w-4 h-4" /> Reprint packing label
               </DashButton>
             </Link>
             {onDelete && (
