@@ -121,7 +121,7 @@ async function lookupNominatimPostalCode(
 
   const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
     headers: {
-      "User-Agent": "aeris-fulfillment-dashboard/1.0 (marketing shipment requests)",
+      "User-Agent": "aeris-offline-packing/1.0 (marketing shipment requests)",
     },
     next: { revalidate: 86400 },
   });
