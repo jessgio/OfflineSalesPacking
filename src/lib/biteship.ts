@@ -178,6 +178,26 @@ function formatDuration(rate: RawPricing): string {
   return "—";
 }
 
+/** Biteship courier company codes to query per preferred tier (required by Rates API). */
+function biteshipCourierCodesForPreference(
+  courier: MarketingCourier | null | undefined
+): string {
+  const codesByTier: Record<
+    Extract<MarketingCourier, "Instant" | "Same Day" | "Regular" | "Kargo">,
+    string[]
+  > = {
+    Instant: ["grab", "gojek", "borzo"],
+    "Same Day": ["grab", "gojek", "lalamove"],
+    Regular: ["jne", "sicepat", "anteraja", "tiki", "idexpress", "ninja", "paxel", "lion"],
+    Kargo: ["jnt", "jne", "sap", "sentral", "lion", "rpx"],
+  };
+
+  if (courier && courier in codesByTier) {
+    return codesByTier[courier as keyof typeof codesByTier].join(",");
+  }
+  return codesByTier.Regular.join(",");
+}
+
 /** Map portal courier preference to Biteship service type codes. */
 export function biteshipServiceTypesForPreference(
   courier: MarketingCourier | null | undefined
@@ -217,6 +237,7 @@ export async function fetchBiteshipRates(input: {
   const payload = {
     origin_postal_code: config.originPostalCode,
     destination_postal_code: input.destinationPostalCode,
+    couriers: biteshipCourierCodesForPreference(input.preferredCourier),
     items: buildItemsPayload(input.items, input.package),
   };
 

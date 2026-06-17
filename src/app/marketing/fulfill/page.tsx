@@ -287,7 +287,7 @@ export default function MarketingFulfillPage() {
       const packedAt = new Date().toISOString();
       await markMarketingRequestPacked(req.id, packerName);
       const packedReq: MarketingRequest = { ...req, status: "packed", packed_by: packedBy, packed_at: packedAt };
-      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? packedReq : r)));
       setAllRequests((prev) => prev.map((r) => (r.id === req.id ? packedReq : r)));
       setScanOk(true);
       setScanMessage(`Packed ${code} for ${req.recipient_name}. Print label and affix to package.`);
