@@ -64,7 +64,7 @@
   }
 
   @page thermal-label {
-    size: 100mm 150mm;
+    size: 100mm auto;
     margin: 0;
   }
 }

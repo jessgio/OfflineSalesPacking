@@ -2,7 +2,21 @@ import Barcode from "react-barcode";
 import type { MarketingRequest } from "../../types/marketing";
 import { THERMAL_BARCODE, thermalLabelShellClass } from "../../lib/thermalLabel";
 
+function itemListDensityClass(itemCount: number): string {
+  if (itemCount > 18) {
+    return "grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] font-bold leading-tight";
+  }
+  if (itemCount > 10) {
+    return "space-y-0.5 text-xs font-bold leading-tight";
+  }
+  return "space-y-1 text-sm font-bold leading-tight";
+}
+
 export function MarketingShippingLabel({ request }: { request: MarketingRequest }) {
+  const items = request.items ?? [];
+  const itemCount = items.length;
+  const itemListClass = itemListDensityClass(itemCount);
+
   const addressLines = [
     request.recipient_name,
     request.recipient_phone,
@@ -59,12 +73,12 @@ export function MarketingShippingLabel({ request }: { request: MarketingRequest 
         ))}
       </div>
 
-      <div className="border-y-2 border-black py-2 mb-3 flex-1">
+      <div className={`border-y-2 border-black py-2 mb-3 flex-1 ${itemCount > 18 ? "py-1.5" : ""}`}>
         <p className="text-[9px] font-bold uppercase tracking-widest text-gray-600 mb-2">Pack these items</p>
-        <ul className="space-y-1">
-          {(request.items ?? []).map((item) => (
-            <li key={item.id ?? `${item.product_name}-${item.qty}`} className="text-sm font-bold leading-tight">
-              <span className="inline-block w-8">{item.qty}×</span>
+        <ul className={itemListClass}>
+          {items.map((item) => (
+            <li key={item.id ?? `${item.product_name}-${item.qty}`}>
+              <span className="inline-block w-7 tabular-nums">{item.qty}×</span>
               {item.product_name}
             </li>
           ))}
