@@ -62,6 +62,14 @@ export function canBookWithBiteship(request: {
   return isBiteshipEligibleCourier(request.preferred_courier);
 }
 
+/** Biteship booked but still in the active queue until the carrier label is printed and completed. */
+export function isBiteshipBookedPendingShip(request: {
+  status: MarketingRequestStatus;
+  biteship_order_id?: string | null;
+}): boolean {
+  return request.status === "packed" && !!request.biteship_order_id?.trim();
+}
+
 /** Shipment has enough Biteship data to pull live tracking scans. */
 export function canTrackWithBiteship(request: {
   biteship_order_id?: string | null;

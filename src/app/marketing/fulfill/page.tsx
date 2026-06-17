@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -33,7 +33,7 @@ import { useMarketingUnseenOrders } from "../../../hooks/useMarketingUnseenOrder
 import { clearMarketingSession, getMarketingSession, setMarketingSession } from "../../../lib/marketingAuth";
 import { canAccessFulfillPortal, canDeleteMarketingShipment, canFulfill, isAdmin, roleLabel } from "../../../lib/marketingRoles";
 import type { MarketingRequest, MarketingSession } from "../../../types/marketing";
-import { canBookWithBiteship, canTrackWithBiteship } from "../../../types/marketing";
+import { canBookWithBiteship, canTrackWithBiteship, isBiteshipBookedPendingShip } from "../../../types/marketing";
 import {
   deleteMarketingRequest,
   deleteMarketingRequestsBulk,
@@ -179,6 +179,10 @@ export default function MarketingFulfillPage() {
   useEffect(() => {
     void loadQueue();
   }, [loadQueue]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [moduleTab]);
 
   useAutoRefresh(() => loadQueue(true), 15000, true);
 
@@ -396,6 +400,25 @@ export default function MarketingFulfillPage() {
     const url = `/marketing/labels/batch?ids=${encodeURIComponent(selectedIds.join(","))}`;
     window.open(url, "_blank", "noopener,noreferrer");
   };
+
+  const handleBatchPrintBiteshipLabels = () => {
+    if (selectedIds.length === 0) return;
+    const url = `/marketing/labels/biteship/batch?ids=${encodeURIComponent(selectedIds.join(","))}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const selectionSource = useMemo(() => {
+    if (moduleTab === "HISTORY") return completedRequests;
+    if (moduleTab === "SHIPMENTS") return allRequests;
+    return requests;
+  }, [moduleTab, completedRequests, allRequests, requests]);
+
+  const selectedBiteshipCount = useMemo(
+    () =>
+      selectionSource.filter((req) => selectedIds.includes(req.id) && canTrackWithBiteship(req))
+        .length,
+    [selectionSource, selectedIds]
+  );
 
   const handleBatchMarkPacked = async () => {
     if (!packerName.trim()) {
@@ -621,7 +644,7 @@ export default function MarketingFulfillPage() {
             onViewRequest={handleViewRequest}
             onUpdated={() => loadQueue(true)}
             live
-            selectable={!!chatSession && isAdmin(chatSession)}
+            selectable
             selectedIds={selectedIds}
             onToggleRow={toggleSelection}
             onToggleAll={toggleSelectAllShipments}
@@ -643,8 +666,8 @@ export default function MarketingFulfillPage() {
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/80">
                 <h2 className="font-bold text-gray-900">Shipped orders</h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  Click a row to view order details, select rows to export audit CSV, or delete shipments as
-                  admin.
+                  Click a row to view order details, select rows to reprint labels or export audit CSV
+                  {chatSession && isAdmin(chatSession) ? ", or delete shipments as admin" : ""}.
                 </p>
               </div>
               <div className="overflow-x-auto">
@@ -854,6 +877,11 @@ export default function MarketingFulfillPage() {
                 <p className="text-xs text-gray-600 mb-4">
                   From {req.requested_by_name} · {new Date(req.created_at).toLocaleString()}
                 </p>
+                {isBiteshipBookedPendingShip(req) && (
+                  <p className="text-xs bg-orange-50 text-orange-900 border border-orange-200 rounded-lg px-3 py-2 mb-4 font-medium">
+                    Biteship booked — print the carrier label, then mark complete to move to history.
+                  </p>
+                )}
                 {req.notes && (
                   <p className="text-xs bg-amber-50 text-amber-900 border border-amber-100 rounded-lg px-3 py-2 mb-4">
                     {req.notes}
@@ -901,14 +929,32 @@ export default function MarketingFulfillPage() {
                           <Truck className="w-4 h-4" /> Biteship
                         </DashButton>
                       )}
-                      <DashButton
-                        variant="success"
-                        size="md"
-                        onClick={() => handleMarkShipped(req.id)}
-                        className="flex-1 min-w-[120px]"
-                      >
-                        <Truck className="w-4 h-4" /> Shipped
-                      </DashButton>
+                      {isBiteshipBookedPendingShip(req) ? (
+                        <>
+                          <Link href={`/marketing/labels/biteship/${req.id}`} className="flex-1 min-w-[120px]">
+                            <DashButton variant="pink" size="md" className="w-full">
+                              <Printer className="w-4 h-4" /> Carrier label
+                            </DashButton>
+                          </Link>
+                          <DashButton
+                            variant="success"
+                            size="md"
+                            onClick={() => handleMarkShipped(req.id)}
+                            className="flex-1 min-w-[120px]"
+                          >
+                            <Truck className="w-4 h-4" /> Complete
+                          </DashButton>
+                        </>
+                      ) : (
+                        <DashButton
+                          variant="success"
+                          size="md"
+                          onClick={() => handleMarkShipped(req.id)}
+                          className="flex-1 min-w-[120px]"
+                        >
+                          <Truck className="w-4 h-4" /> Shipped
+                        </DashButton>
+                      )}
                     </>
                   )}
                 </div>
@@ -941,10 +987,10 @@ export default function MarketingFulfillPage() {
                     ? `${selectedPendingCount} pending · print labels or mark packed with manifest`
                     : "Batch print shipping labels"
                   : moduleTab === "SHIPMENTS"
-                    ? "Delete selected shipments"
+                    ? "Reprint packing or Biteship carrier labels"
                     : chatSession && isAdmin(chatSession)
-                      ? "Export audit CSV or delete shipments"
-                      : "Export audit CSV with pack/ship details"}
+                      ? "Reprint labels, export audit CSV, or delete shipments"
+                      : "Reprint labels or export audit CSV"}
               </p>
             </div>
           </div>
@@ -972,25 +1018,60 @@ export default function MarketingFulfillPage() {
                 </DashButton>
               </>
             ) : moduleTab === "SHIPMENTS" ? (
-              chatSession &&
-              isAdmin(chatSession) && (
-                <DashButton
-                  variant="danger"
-                  size="md"
-                  onClick={() => handleBatchDeleteSelected(allRequests)}
-                  disabled={batchDeleting}
-                >
-                  {batchDeleting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-4 h-4" />
-                  )}
-                  Delete
+              <>
+                <DashButton variant="primary" size="md" onClick={handleBatchPrintLabels}>
+                  <Printer className="w-4 h-4" /> Packing labels
                 </DashButton>
-              )
+                <DashButton
+                  variant="pink"
+                  size="md"
+                  onClick={handleBatchPrintBiteshipLabels}
+                  disabled={selectedBiteshipCount === 0}
+                  title={
+                    selectedBiteshipCount === 0
+                      ? "No Biteship-booked shipments in selection"
+                      : undefined
+                  }
+                >
+                  <Printer className="w-4 h-4" /> Biteship labels
+                  {selectedBiteshipCount > 0 ? ` (${selectedBiteshipCount})` : ""}
+                </DashButton>
+                {chatSession && isAdmin(chatSession) && (
+                  <DashButton
+                    variant="danger"
+                    size="md"
+                    onClick={() => handleBatchDeleteSelected(allRequests)}
+                    disabled={batchDeleting}
+                  >
+                    {batchDeleting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                    Delete
+                  </DashButton>
+                )}
+              </>
             ) : (
               <>
-                <DashButton variant="primary" size="md" onClick={handleExportSelected}>
+                <DashButton variant="primary" size="md" onClick={handleBatchPrintLabels}>
+                  <Printer className="w-4 h-4" /> Packing labels
+                </DashButton>
+                <DashButton
+                  variant="pink"
+                  size="md"
+                  onClick={handleBatchPrintBiteshipLabels}
+                  disabled={selectedBiteshipCount === 0}
+                  title={
+                    selectedBiteshipCount === 0
+                      ? "No Biteship-booked shipments in selection"
+                      : undefined
+                  }
+                >
+                  <Printer className="w-4 h-4" /> Biteship labels
+                  {selectedBiteshipCount > 0 ? ` (${selectedBiteshipCount})` : ""}
+                </DashButton>
+                <DashButton variant="subtle" size="md" onClick={handleExportSelected}>
                   <Download className="w-4 h-4" /> Export CSV
                 </DashButton>
                 {chatSession && isAdmin(chatSession) && (
@@ -1020,6 +1101,9 @@ export default function MarketingFulfillPage() {
           packerName={packerName}
           onClose={() => setBiteshipRequest(null)}
           onBooked={() => {
+            void loadQueue(true);
+          }}
+          onComplete={() => {
             setBiteshipRequest(null);
             void loadQueue(true);
           }}

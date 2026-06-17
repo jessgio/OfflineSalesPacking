@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { ExternalLink, Loader2, Package, Printer, Truck, X } from "lucide-react";
 import { DashButton, cx, fieldInput } from "../dashboard/primitives";
+import { markMarketingRequestShipped } from "../../lib/marketingDb";
 import type { MarketingRequest } from "../../types/marketing";
 
 interface BiteshipRateOption {
@@ -37,11 +37,15 @@ export function MarketingBiteshipModal({
   packerName,
   onClose,
   onBooked,
+  onComplete,
 }: {
   request: MarketingRequest;
   packerName: string;
   onClose: () => void;
+  /** Called after Biteship booking succeeds (order stays packed until completed). */
   onBooked: (requestId: string) => void;
+  /** Called after the carrier label step is done and the order is marked shipped. */
+  onComplete: (requestId: string) => void;
 }) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [pkg, setPkg] = useState<PackageDraft>({
@@ -55,6 +59,7 @@ export function MarketingBiteshipModal({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [loadingRates, setLoadingRates] = useState(false);
   const [booking, setBooking] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState<{
     trackingId: string | null;
@@ -152,17 +157,44 @@ export function MarketingBiteshipModal({
         price: order.price ?? selected.price,
       });
 
+      onBooked(request.id);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to book shipment");
+    } finally {
+      setBooking(false);
+    }
+  };
+
+  const handlePrintLabel = () => {
+    window.open(
+      `/marketing/labels/biteship/${request.id}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  };
+
+  const handleComplete = async () => {
+    if (!packerName.trim()) {
+      setError("Enter your packer initials on the fulfill page first.");
+      return;
+    }
+
+    setCompleting(true);
+    setError("");
+    try {
+      await markMarketingRequestShipped(request.id, packerName);
+
       void fetch("/api/marketing-shipped/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestId: request.id }),
       });
 
-      onBooked(request.id);
+      onComplete(request.id);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to book shipment");
+      setError(e instanceof Error ? e.message : "Failed to mark shipment complete");
     } finally {
-      setBooking(false);
+      setCompleting(false);
     }
   };
 
@@ -211,6 +243,10 @@ export function MarketingBiteshipModal({
                 {success.trackingId && (
                   <p className="text-sm font-mono mt-2">AWB: {success.trackingId}</p>
                 )}
+                <p className="text-sm mt-3 text-green-800">
+                  Print the carrier label, affix it to the package, then mark complete to move this
+                  order to history.
+                </p>
               </div>
               {success.waybillUrl && (
                 <a
@@ -224,13 +260,25 @@ export function MarketingBiteshipModal({
                   </DashButton>
                 </a>
               )}
-              <Link href={`/marketing/labels/biteship/${request.id}`} className="block">
-                <DashButton variant="primary" size="md" className="w-full">
-                  <Printer className="w-4 h-4" /> Print carrier label
-                </DashButton>
-              </Link>
-              <DashButton variant="subtle" size="md" className="w-full" onClick={onClose}>
-                Done
+              <DashButton variant="primary" size="md" className="w-full" onClick={handlePrintLabel}>
+                <Printer className="w-4 h-4" /> Print carrier label
+              </DashButton>
+              <DashButton
+                variant="success"
+                size="md"
+                className="w-full"
+                disabled={completing}
+                onClick={() => void handleComplete()}
+              >
+                {completing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Truck className="w-4 h-4" />
+                )}
+                Mark complete
+              </DashButton>
+              <DashButton variant="ghost" size="sm" className="w-full" onClick={onClose}>
+                Close (stay in active queue)
               </DashButton>
             </div>
           ) : (
@@ -400,7 +448,7 @@ export function MarketingBiteshipModal({
                 ) : (
                   <Truck className="w-4 h-4" />
                 )}
-                Book & mark shipped
+                Book shipment
               </DashButton>
             </>
           )}

@@ -259,7 +259,8 @@ export function MarketingShipmentsRegistry({
                     </span>
                   ))}{" "}
                   shipments
-                  {selectable ? ", or select rows to bulk delete as admin" : ""}.
+                  {selectable ? ", or select rows to reprint labels in bulk" : ""}
+                  {selectable && isPortalAdmin ? " or bulk delete as admin" : ""}.
                 </>
               )}
             </p>

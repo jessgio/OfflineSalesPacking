@@ -89,22 +89,19 @@ export async function POST(request: Request) {
       orderNote: pkg.notes ? `MK ${pkg.barcode} — ${pkg.notes}` : `MK ${pkg.barcode}`,
     });
 
-    const shippedAt = new Date().toISOString();
+    const bookedAt = new Date().toISOString();
     const trackingLabel = order.trackingId?.trim() || null;
 
     const { data: updated, error: updateError } = await supabase
       .from("marketing_requests")
       .update({
-        status: "shipped",
-        shipped_by: initials,
-        shipped_at: shippedAt,
         biteship_order_id: order.orderId,
         biteship_courier_company: order.courierCompany,
         biteship_courier_type: order.courierType,
         biteship_waybill_url: order.waybillUrl,
         biteship_status: order.status,
         actual_shipping_label: trackingLabel,
-        actual_shipping_label_at: trackingLabel ? shippedAt : null,
+        actual_shipping_label_at: trackingLabel ? bookedAt : null,
         actual_shipping_label_by: trackingLabel ? initials : null,
       })
       .eq("id", requestId)
@@ -127,8 +124,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       order,
-      shippedAt,
-      shippedBy: initials,
+      bookedAt,
+      bookedBy: initials,
     });
   } catch (err: unknown) {
     console.error("biteship order error:", err);
