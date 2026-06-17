@@ -7,7 +7,7 @@ export const THERMAL_LABEL = {
 } as const;
 
 export const THERMAL_LABEL_HINT =
-  "Preview at label width (100 mm). Standard height is 150 mm; labels with many items grow taller so nothing is cut off.";
+  "Preview at actual label size (100×150 mm). Long packing lists continue on additional labels.";
 
 type ThermalLabelBorder = "slate" | "violet" | "gray";
 
@@ -24,9 +24,9 @@ export function thermalLabelShellClass(options?: { border?: ThermalLabelBorder }
   return [
     "bg-white border-2 border-dashed",
     border,
-    "w-[100mm] min-h-[150mm] h-auto p-4 flex flex-col text-black rounded-xl shadow-sm",
+    "w-[100mm] h-[150mm] p-4 flex flex-col text-black rounded-xl shadow-sm overflow-hidden",
     "print:border-none print:shadow-none print:rounded-none",
-    "print:w-[100mm] print:min-h-[150mm] print:h-auto print:p-3 print:break-after-page",
+    "print:w-[100mm] print:h-[150mm] print:p-3 print:break-after-page print:overflow-hidden",
   ].join(" ");
 }
 
