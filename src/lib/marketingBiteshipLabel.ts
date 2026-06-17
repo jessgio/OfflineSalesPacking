@@ -1,4 +1,6 @@
 import type { MarketingRequest } from "../types/marketing";
+import { canTrackWithBiteship } from "../types/marketing";
+import { pickCarrierWaybillId } from "./biteship";
 import { formatBiteshipStatusLabel } from "./biteshipWebhook";
 
 const COURIER_DISPLAY: Record<string, string> = {
@@ -28,8 +30,30 @@ export function resolveBiteshipWaybillId(
   request: MarketingRequest,
   override?: string | null
 ): string | null {
-  const value = override?.trim() || request.actual_shipping_label?.trim();
-  return value || null;
+  return pickCarrierWaybillId(override, request.actual_shipping_label);
+}
+
+export async function fetchCarrierWaybillForRequest(
+  request: MarketingRequest
+): Promise<string | null> {
+  const fromStored = pickCarrierWaybillId(request.actual_shipping_label);
+  if (fromStored) return fromStored;
+
+  if (!canTrackWithBiteship(request)) return null;
+
+  try {
+    const res = await fetch(`/api/biteship/tracking?requestId=${encodeURIComponent(request.id)}`);
+    const payload = (await res.json()) as {
+      tracking?: { waybillId?: string | null };
+    };
+    if (res.ok) {
+      return pickCarrierWaybillId(payload.tracking?.waybillId);
+    }
+  } catch {
+    /* AWB may arrive later via webhook */
+  }
+
+  return null;
 }
 
 export function biteshipLabelReference(request: MarketingRequest): string {

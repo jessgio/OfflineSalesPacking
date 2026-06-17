@@ -56,6 +56,7 @@ export function MarketingBiteshipModal({
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState<{
+    waybillId: string | null;
     trackingId: string | null;
     waybillUrl: string | null;
     courierLabel: string;
@@ -139,6 +140,7 @@ export function MarketingBiteshipModal({
       const data = (await res.json()) as {
         error?: string;
         order?: {
+          waybillId: string | null;
           trackingId: string | null;
           waybillUrl: string | null;
           courierCompany: string;
@@ -152,6 +154,7 @@ export function MarketingBiteshipModal({
 
       const order = data.order!;
       setSuccess({
+        waybillId: order.waybillId,
         trackingId: order.trackingId,
         waybillUrl: order.waybillUrl,
         courierLabel: `${selected.courierCompanyName} · ${selected.courierTypeName}`,
@@ -241,8 +244,12 @@ export function MarketingBiteshipModal({
                 {success.price != null && (
                   <p className="text-sm font-semibold mt-1">{formatIdr(success.price)}</p>
                 )}
-                {success.trackingId && (
-                  <p className="text-sm font-mono mt-2">AWB: {success.trackingId}</p>
+                {success.waybillId ? (
+                  <p className="text-sm font-mono mt-2">AWB: {success.waybillId}</p>
+                ) : (
+                  <p className="text-sm mt-2 text-green-800">
+                    AWB will appear on the carrier label once JNE assigns the resi number.
+                  </p>
                 )}
                 <p className="text-sm mt-3 text-green-800">
                   Print the carrier label, affix it to the package, then mark complete to move this

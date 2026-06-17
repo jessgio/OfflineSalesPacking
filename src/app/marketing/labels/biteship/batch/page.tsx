@@ -7,27 +7,12 @@ import { ArrowLeft, Loader2, Printer } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard } from "../../../../../components/dashboard/primitives";
 import { MarketingBiteshipShippingLabel } from "../../../../../components/marketing/MarketingBiteshipShippingLabel";
 import { fetchMarketingRequestsByIds } from "../../../../../lib/marketingDb";
+import { fetchCarrierWaybillForRequest } from "../../../../../lib/marketingBiteshipLabel";
 import { THERMAL_LABEL_HINT, thermalLabelGridClass, thermalLabelPageClass } from "../../../../../lib/thermalLabel";
 import { canTrackWithBiteship, type MarketingRequest } from "../../../../../types/marketing";
 
 async function resolveWaybillId(request: MarketingRequest): Promise<string | null> {
-  if (request.actual_shipping_label?.trim()) {
-    return request.actual_shipping_label.trim();
-  }
-
-  try {
-    const res = await fetch(`/api/biteship/tracking?requestId=${encodeURIComponent(request.id)}`);
-    const payload = (await res.json()) as {
-      tracking?: { waybillId?: string | null };
-    };
-    if (res.ok && payload.tracking?.waybillId?.trim()) {
-      return payload.tracking.waybillId.trim();
-    }
-  } catch {
-    /* AWB may arrive later via webhook */
-  }
-
-  return null;
+  return fetchCarrierWaybillForRequest(request);
 }
 
 function BatchBiteshipLabelsContent() {

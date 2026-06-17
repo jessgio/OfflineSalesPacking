@@ -32,11 +32,29 @@ export interface BiteshipRateOption {
 export interface BiteshipCreateOrderResult {
   orderId: string;
   status: string;
+  /** Carrier air waybill (e.g. JNE resi) — use on printed labels. */
+  waybillId: string | null;
+  /** Biteship internal tracking object ID — not a carrier AWB. */
   trackingId: string | null;
   waybillUrl: string | null;
   courierCompany: string;
   courierType: string;
   price: number | null;
+}
+
+/** Biteship tracking refs are 24-char hex IDs, not carrier AWB numbers. */
+export function isBiteshipInternalTrackingRef(value: string): boolean {
+  return /^[a-f0-9]{24}$/i.test(value.trim());
+}
+
+/** Prefer courier waybill numbers; ignore Biteship internal tracking IDs. */
+export function pickCarrierWaybillId(...candidates: (string | null | undefined)[]): string | null {
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value) continue;
+    if (!isBiteshipInternalTrackingRef(value)) return value;
+  }
+  return null;
 }
 
 export function isBiteshipConfigured(): boolean {
@@ -352,7 +370,8 @@ export async function createBiteshipOrder(input: {
   return {
     orderId: data.id,
     status: data.status ?? "confirmed",
-    trackingId: data.courier?.tracking_id ?? data.courier?.waybill_id ?? null,
+    waybillId: pickCarrierWaybillId(data.courier?.waybill_id),
+    trackingId: data.courier?.tracking_id?.trim() || null,
     waybillUrl: data.courier?.link ?? null,
     courierCompany: data.courier?.company ?? input.courierCompany,
     courierType: data.courier?.type ?? input.courierType,
@@ -426,7 +445,11 @@ function snapshotFromTrackingPayload(
 
   return {
     status: String(data.status ?? history[0]?.status ?? "unknown"),
-    waybillId: (data.waybill_id as string | undefined)?.trim() || null,
+    waybillId: pickCarrierWaybillId(
+      data.waybill_id as string | undefined,
+      courier.waybill_id as string | undefined,
+      courier.tracking_id as string | undefined
+    ),
     trackingId:
       (data.id as string | undefined)?.trim() ||
       (courier.tracking_id as string | undefined)?.trim() ||
@@ -526,14 +549,16 @@ export async function resolveBiteshipTracking(input: {
 }): Promise<BiteshipTrackingSnapshot> {
   const orderId = input.orderId?.trim();
   const trackingId = input.trackingId?.trim();
-  const waybillId = input.waybillId?.trim();
+  const storedWaybill = input.waybillId?.trim();
+  const carrierWaybill =
+    storedWaybill && !isBiteshipInternalTrackingRef(storedWaybill) ? storedWaybill : null;
   const courierCompany = input.courierCompany?.trim();
 
   if (orderId) {
     try {
       return await fetchBiteshipOrderTracking(orderId);
     } catch (orderErr) {
-      if (!trackingId && !(waybillId && courierCompany)) {
+      if (!trackingId && !(carrierWaybill && courierCompany)) {
         throw orderErr;
       }
     }
@@ -543,14 +568,14 @@ export async function resolveBiteshipTracking(input: {
     try {
       return await fetchBiteshipTrackingById(trackingId);
     } catch (trackingErr) {
-      if (!(waybillId && courierCompany)) {
+      if (!(carrierWaybill && courierCompany)) {
         throw trackingErr;
       }
     }
   }
 
-  if (waybillId && courierCompany) {
-    return fetchBiteshipPublicTracking(waybillId, courierCompany);
+  if (carrierWaybill && courierCompany) {
+    return fetchBiteshipPublicTracking(carrierWaybill, courierCompany);
   }
 
   throw new Error("No Biteship order, tracking ID, or waybill available for this shipment.");

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Printer } from "lucide-react";
 import { CenteredPage, DashButton, SurfaceCard } from "../../../../../components/dashboard/primitives";
 import { MarketingBiteshipShippingLabel } from "../../../../../components/marketing/MarketingBiteshipShippingLabel";
+import { fetchCarrierWaybillForRequest } from "../../../../../lib/marketingBiteshipLabel";
 import { fetchMarketingRequestById } from "../../../../../lib/marketingDb";
 import { THERMAL_LABEL_HINT, thermalLabelGridClass, thermalLabelPageClass } from "../../../../../lib/thermalLabel";
 import { canTrackWithBiteship, type MarketingRequest } from "../../../../../types/marketing";
@@ -33,23 +34,7 @@ export default function MarketingBiteshipLabelPage(props: { params: Promise<{ id
         }
 
         setRequest(data);
-
-        if (data.actual_shipping_label?.trim()) {
-          setWaybillId(data.actual_shipping_label.trim());
-          return;
-        }
-
-        try {
-          const res = await fetch(`/api/biteship/tracking?requestId=${encodeURIComponent(data.id)}`);
-          const payload = (await res.json()) as {
-            tracking?: { waybillId?: string | null };
-          };
-          if (res.ok && payload.tracking?.waybillId?.trim()) {
-            setWaybillId(payload.tracking.waybillId.trim());
-          }
-        } catch {
-          /* AWB may arrive later via webhook */
-        }
+        setWaybillId(await fetchCarrierWaybillForRequest(data));
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");

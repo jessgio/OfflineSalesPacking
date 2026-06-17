@@ -41,6 +41,19 @@ export async function GET(request: Request) {
       courierCompany: pkg.biteship_courier_company,
     });
 
+    const carrierAwb = tracking.waybillId;
+    const stored = pkg.actual_shipping_label?.trim();
+    if (carrierAwb && carrierAwb !== stored) {
+      await supabase
+        .from("marketing_requests")
+        .update({
+          actual_shipping_label: carrierAwb,
+          actual_shipping_label_at: new Date().toISOString(),
+          actual_shipping_label_by: "Biteship",
+        })
+        .eq("id", requestId);
+    }
+
     return NextResponse.json({
       requestId: pkg.id,
       barcode: pkg.barcode,

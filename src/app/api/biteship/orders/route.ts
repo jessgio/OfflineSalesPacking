@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     });
 
     const bookedAt = new Date().toISOString();
-    const trackingLabel = order.trackingId?.trim() || null;
+    const carrierAwb = order.waybillId?.trim() || null;
 
     const { data: updated, error: updateError } = await supabase
       .from("marketing_requests")
@@ -102,9 +102,9 @@ export async function POST(request: Request) {
         biteship_courier_type: order.courierType,
         biteship_waybill_url: order.waybillUrl,
         biteship_status: order.status,
-        actual_shipping_label: trackingLabel,
-        actual_shipping_label_at: trackingLabel ? bookedAt : null,
-        actual_shipping_label_by: trackingLabel ? initials : null,
+        actual_shipping_label: carrierAwb,
+        actual_shipping_label_at: carrierAwb ? bookedAt : null,
+        actual_shipping_label_by: carrierAwb ? initials : null,
       })
       .eq("id", requestId)
       .eq("status", "packed")

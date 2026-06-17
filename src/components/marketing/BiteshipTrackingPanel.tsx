@@ -14,6 +14,7 @@ import { BiteshipStatusBadge } from "./BiteshipStatusBadge";
 import { DashButton, cx } from "../dashboard/primitives";
 import type { BiteshipTrackingSnapshot } from "../../lib/biteship";
 import { biteshipStatusStyle, formatBiteshipStatusLabel } from "../../lib/biteshipWebhook";
+import { resolveBiteshipWaybillId } from "../../lib/marketingBiteshipLabel";
 import { canTrackWithBiteship, type MarketingRequest } from "../../types/marketing";
 
 type TrackingResponse = {
@@ -162,6 +163,7 @@ export function BiteshipTrackingPanel({
   const displayUpdatedAt = tracking
     ? tracking.history[0]?.updatedAt ?? request.biteship_status_updated_at
     : request.biteship_status_updated_at;
+  const displayWaybill = resolveBiteshipWaybillId(request, tracking?.waybillId);
 
   return (
     <div
@@ -201,12 +203,10 @@ export function BiteshipTrackingPanel({
       <div className="px-4 py-4 space-y-4">
         <div className="flex flex-wrap items-start gap-3">
           <BiteshipStatusBadge status={displayStatus} updatedAt={displayUpdatedAt} />
-          {(tracking?.waybillId || request.actual_shipping_label) && (
+          {displayWaybill && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Waybill</p>
-              <p className="font-mono text-sm font-semibold text-gray-900">
-                {tracking?.waybillId ?? request.actual_shipping_label}
-              </p>
+              <p className="font-mono text-sm font-semibold text-gray-900">{displayWaybill}</p>
             </div>
           )}
           {(tracking?.courierCompany || request.biteship_courier_company) && (

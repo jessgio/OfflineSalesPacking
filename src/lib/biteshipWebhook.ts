@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { pickCarrierWaybillId } from "./biteship";
 
 export type BiteshipWebhookEvent = "order.status" | "order.waybill_id" | "order.price";
 
@@ -81,8 +82,10 @@ export function buildMarketingUpdateFromWebhook(
     update.biteship_status = payload.status.trim();
   }
 
-  const tracking =
-    payload.courier_waybill_id?.trim() || payload.courier_tracking_id?.trim() || null;
+  const tracking = pickCarrierWaybillId(
+    payload.courier_waybill_id,
+    payload.courier_tracking_id
+  );
   if (tracking) {
     update.actual_shipping_label = tracking;
     update.actual_shipping_label_at = now;
