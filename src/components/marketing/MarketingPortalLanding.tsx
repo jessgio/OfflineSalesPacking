@@ -16,6 +16,7 @@ import {
   getMarketingSession,
   setMarketingSession,
 } from "../../lib/marketingAuth";
+import { ForgotPinLink } from "./ForgotPinLink";
 import { loginMarketingUser, refreshMarketingSession } from "../../lib/marketingDb";
 import {
   canAccessFulfillPortal,
@@ -234,6 +235,7 @@ export function MarketingPortalLanding() {
                   placeholder="••••"
                   autoComplete="current-password"
                 />
+                <ForgotPinLink email={email} />
               </div>
               {loginError && <p className="text-sm text-red-600 font-medium">{loginError}</p>}
               <DashButton type="submit" variant="pink" size="lg" className="w-full" disabled={loggingIn}>

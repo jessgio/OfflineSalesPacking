@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Loader2, LogOut, MessageSquare } from "lucide-react";
 import { DashButton, SurfaceCard, fieldInput } from "../dashboard/primitives";
 import { clearMarketingSession, setMarketingSession } from "../../lib/marketingAuth";
+import { ForgotPinLink } from "./ForgotPinLink";
 import { loginMarketingUser } from "../../lib/marketingDb";
 import type { MarketingSession } from "../../types/marketing";
 
@@ -82,6 +83,7 @@ export function ChatLoginBar({
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign in"}
         </DashButton>
       </form>
+      <ForgotPinLink email={email} />
       {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
     </SurfaceCard>
   );

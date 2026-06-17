@@ -36,3 +36,16 @@ export function setMarketingSession(session: MarketingSession): void {
 export function clearMarketingSession(): void {
   sessionStorage.removeItem(SESSION_KEY);
 }
+
+export async function requestMarketingPinReminder(email: string): Promise<string> {
+  const res = await fetch("/api/marketing-auth/send-pin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim() }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    throw new Error(data.error ?? "Could not send PIN email.");
+  }
+  return data.message ?? "If that email is registered, we sent your PIN.";
+}
