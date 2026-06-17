@@ -21,6 +21,7 @@ export const MARKETING_IMPORT_HEADERS = [
   "product_name",
   "product_barcode",
   "qty",
+  "rsp",
 ] as const;
 
 export const MARKETING_IMPORT_TEMPLATE_ROWS: string[][] = [
@@ -41,6 +42,7 @@ export const MARKETING_IMPORT_TEMPLATE_ROWS: string[][] = [
     "Lip Gloss Rose",
     "8801234567890",
     "2",
+    "189000",
   ],
   [
     "PKG001",
@@ -59,6 +61,7 @@ export const MARKETING_IMPORT_TEMPLATE_ROWS: string[][] = [
     "Face Serum 30ml",
     "8801234567891",
     "1",
+    "425000",
   ],
   [
     "PKG002",
@@ -77,6 +80,7 @@ export const MARKETING_IMPORT_TEMPLATE_ROWS: string[][] = [
     "Body Lotion",
     "",
     "1",
+    "",
   ],
 ];
 
@@ -104,6 +108,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   product_name: ["product_name", "productname", "product", "item", "item_name"],
   product_barcode: ["product_barcode", "productbarcode", "barcode", "sku", "upc"],
   qty: ["qty", "quantity", "amount", "units"],
+  rsp: ["rsp", "retail_price", "retailprice", "retail_selling_price", "price", "harga"],
 };
 
 function normalizeHeader(cell: string): string {
@@ -202,6 +207,13 @@ function normalizeDate(raw: string): string | null {
 function normalizeCourier(raw: string): MarketingCourier | null {
   const trimmed = raw.trim().toLowerCase();
   return MARKETING_COURIER_OPTIONS.find((o) => o.toLowerCase() === trimmed) ?? null;
+}
+
+function parseRsp(raw: string): number | null {
+  const digits = raw.replace(/[^\d]/g, "");
+  if (!digits) return null;
+  const parsed = Number.parseInt(digits, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 type PackageDraft = {
@@ -374,10 +386,18 @@ export function parseMarketingImportCsv(text: string): MarketingImportParseResul
 
     const pkg = byPackageId.get(packageId)!;
     const barcode = cell("product_barcode");
+    const rspRaw = col.rsp !== undefined ? cell("rsp") : "";
+    const rsp = rspRaw ? parseRsp(rspRaw) : null;
+    if (rspRaw && rsp === null) {
+      errors.push(`Row ${rowNum}: invalid rsp "${rspRaw}" (use a whole number in IDR).`);
+      continue;
+    }
+
     pkg.items.push({
       product_name: productName,
       product_barcode: barcode || undefined,
       qty,
+      rsp: rsp ?? undefined,
     });
   }
 

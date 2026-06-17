@@ -3,6 +3,7 @@ import { generateMarketingBarcode } from "./marketingBarcode";
 import { getSupabaseErrorMessage } from "./supabaseError";
 import { normalizeRequesterDivision } from "./marketingAuth";
 import { canFulfill, isAdmin, normalizeUserRole } from "./marketingRoles";
+import { lookupProductRspByBarcodes } from "./productsDb";
 import type {
   MarketingRequest,
   MarketingSession,
@@ -13,6 +14,41 @@ import type {
 function normalizeRequestPurpose(value: string | undefined | null): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+async function buildRequestItemRows(
+  requestId: string,
+  items: NewMarketingRequestInput["items"]
+): Promise<
+  Array<{
+    request_id: string;
+    product_barcode: string | null;
+    product_name: string;
+    qty: number;
+    rsp: number | null;
+  }>
+> {
+  const barcodes = items
+    .map((item) => item.product_barcode?.trim())
+    .filter((barcode): barcode is string => !!barcode);
+  const rspByBarcode = await lookupProductRspByBarcodes(barcodes);
+
+  return items.map((item) => {
+    const barcode = item.product_barcode?.trim() || null;
+    const explicitRsp =
+      item.rsp != null && Number.isFinite(item.rsp) && item.rsp > 0
+        ? Math.round(item.rsp)
+        : null;
+    const catalogRsp = barcode ? rspByBarcode.get(barcode) ?? null : null;
+
+    return {
+      request_id: requestId,
+      product_barcode: barcode,
+      product_name: item.product_name.trim(),
+      qty: item.qty,
+      rsp: explicitRsp ?? catalogRsp,
+    };
+  });
 }
 
 async function rememberMarketingRequestPurpose(purpose: string | null): Promise<void> {
@@ -151,12 +187,7 @@ export async function createMarketingRequest(
     throw new Error(getSupabaseErrorMessage(requestError, "Failed to create request"));
   }
 
-  const itemRows = input.items.map((item) => ({
-    request_id: request.id,
-    product_barcode: item.product_barcode?.trim() || null,
-    product_name: item.product_name.trim(),
-    qty: item.qty,
-  }));
+  const itemRows = await buildRequestItemRows(request.id, input.items);
 
   const { error: itemsError } = await supabase.from("marketing_request_items").insert(itemRows);
   if (itemsError) {
@@ -235,12 +266,7 @@ export async function updateMarketingRequest(
     throw new Error(getSupabaseErrorMessage(deleteItemsError, "Failed to update request items"));
   }
 
-  const itemRows = input.items.map((item) => ({
-    request_id: id,
-    product_barcode: item.product_barcode?.trim() || null,
-    product_name: item.product_name.trim(),
-    qty: item.qty,
-  }));
+  const itemRows = await buildRequestItemRows(id, input.items);
 
   const { error: itemsError } = await supabase.from("marketing_request_items").insert(itemRows);
   if (itemsError) {
@@ -605,19 +631,23 @@ export async function markMarketingRequestShipped(id: string, shippedBy: string)
 }
 
 export async function searchProducts(query: string): Promise<
-  { barcode: string; clean_name: string }[]
+  { barcode: string; clean_name: string; rsp: number | null }[]
 > {
   const term = query.trim();
   if (term.length < 2) return [];
 
   const { data, error } = await supabase
     .from("products")
-    .select("barcode, clean_name")
+    .select("barcode, clean_name, rsp")
     .or(`clean_name.ilike.%${term}%,barcode.ilike.%${term}%`)
     .limit(12);
 
   if (error) throw new Error(getSupabaseErrorMessage(error, "Product search failed"));
-  return data ?? [];
+  return (data ?? []).map((row) => ({
+    barcode: row.barcode,
+    clean_name: row.clean_name,
+    rsp: row.rsp != null ? Number(row.rsp) : null,
+  }));
 }
 
 export async function fetchUnseenMarketingOrderCounts(session: MarketingSession): Promise<{

@@ -11,6 +11,8 @@ Run these in the **Supabase SQL editor** before using **Master Box Shipping** (`
 7. `migrations/007_marketing_delivery_fields.sql` — recipient phone, due date, and preferred courier on marketing requests
 8. `migrations/008_marketing_request_chat.sql` — per-package chat threads, admin role, mention email notifications
 9. `migrations/016_marketing_biteship.sql` — Biteship shipment booking fields (run after 012–015)
+10. `migrations/017_marketing_biteship_webhook.sql` — Biteship webhook status sync (run after 016)
+11. `migrations/018_products_rsp.sql` — `products.rsp` and `marketing_request_items.rsp` for shipment insurance value
 
 **Biteship** (marketing fulfillment at `/marketing/fulfill`): set `BITESHIP_API_KEY`, `BITESHIP_ORIGIN_POSTAL_CODE`, `BITESHIP_ORIGIN_ADDRESS`, and `BITESHIP_SHIPPER_PHONE` in Vercel env. Optional: `BITESHIP_SHIPPER_NAME`, `BITESHIP_SHIPPER_EMAIL`.
 

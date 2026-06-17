@@ -24,13 +24,7 @@ interface PackageDraft {
   valueIdr: number;
 }
 
-function formatIdr(amount: number): string {
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
+import { computeShipmentRetailValue, formatIdr, resolveDeclaredValueIdr } from "../../lib/shipmentValue";
 
 export function MarketingBiteshipModal({
   request,
@@ -74,6 +68,13 @@ export function MarketingBiteshipModal({
       .then((data: { configured?: boolean }) => setConfigured(!!data.configured))
       .catch(() => setConfigured(false));
   }, []);
+
+  useEffect(() => {
+    const retailValue = computeShipmentRetailValue(request.items ?? []);
+    if (retailValue > 0) {
+      setPkg((prev) => ({ ...prev, valueIdr: resolveDeclaredValueIdr(request.items ?? []) }));
+    }
+  }, [request.id, request.items]);
 
   const loadRates = useCallback(async () => {
     setLoadingRates(true);
@@ -325,6 +326,11 @@ export function MarketingBiteshipModal({
                       }
                       className={cx(fieldInput, "mt-1")}
                     />
+                    {computeShipmentRetailValue(request.items ?? []) > 0 && (
+                      <span className="block text-[10px] text-violet-700 mt-1">
+                        Catalog RSP total: {formatIdr(computeShipmentRetailValue(request.items ?? []))}
+                      </span>
+                    )}
                   </label>
                   <label className="text-xs text-gray-600">
                     L (cm)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "../../../../lib/supabaseClient";
 import { createBiteshipOrder, isBiteshipConfigured, parsePostalCode } from "../../../../lib/biteship";
+import { resolveDeclaredValueIdr } from "../../../../lib/shipmentValue";
 import { canBookWithBiteship } from "../../../../types/marketing";
 
 export async function POST(request: Request) {
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
 
     const { data: pkg, error: pkgError } = await supabase
       .from("marketing_requests")
-      .select("*, marketing_request_items(product_name, qty)")
+      .select("*, marketing_request_items(product_name, qty, rsp)")
       .eq("id", requestId)
       .maybeSingle();
 
@@ -63,12 +64,13 @@ export async function POST(request: Request) {
     const lengthCm = Math.max(1, Math.min(body.lengthCm ?? 25, 200));
     const widthCm = Math.max(1, Math.min(body.widthCm ?? 20, 200));
     const heightCm = Math.max(1, Math.min(body.heightCm ?? 15, 200));
-    const valueIdr = Math.max(1_000, Math.min(body.valueIdr ?? 100_000, 50_000_000));
-
     const items = (pkg.marketing_request_items ?? []) as Array<{
       product_name: string;
       qty: number;
+      rsp?: number | null;
     }>;
+
+    const valueIdr = resolveDeclaredValueIdr(items, body.valueIdr);
 
     const order = await createBiteshipOrder({
       referenceId: pkg.barcode,

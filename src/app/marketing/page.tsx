@@ -64,7 +64,7 @@ import {
   type MarketingSession,
 } from "../../types/marketing";
 
-type DraftItem = { product_barcode: string; product_name: string; qty: number };
+type DraftItem = { product_barcode: string; product_name: string; qty: number; rsp?: number | null };
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -144,7 +144,9 @@ export default function MarketingPage() {
   const [items, setItems] = useState<DraftItem[]>([{ product_barcode: "", product_name: "", qty: 1 }]);
 
   const [activeLookupIndex, setActiveLookupIndex] = useState<number | null>(null);
-  const [productHits, setProductHits] = useState<{ barcode: string; clean_name: string }[]>([]);
+  const [productHits, setProductHits] = useState<
+    { barcode: string; clean_name: string; rsp: number | null }[]
+  >([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
@@ -286,8 +288,15 @@ export default function MarketingPage() {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   };
 
-  const pickProduct = (index: number, product: { barcode: string; clean_name: string }) => {
-    updateItem(index, { product_barcode: product.barcode, product_name: product.clean_name });
+  const pickProduct = (
+    index: number,
+    product: { barcode: string; clean_name: string; rsp: number | null }
+  ) => {
+    updateItem(index, {
+      product_barcode: product.barcode,
+      product_name: product.clean_name,
+      rsp: product.rsp,
+    });
     setProductHits([]);
     setActiveLookupIndex(null);
   };
@@ -340,6 +349,7 @@ export default function MarketingPage() {
             product_barcode: item.product_barcode ?? "",
             product_name: item.product_name,
             qty: item.qty,
+            rsp: item.rsp ?? undefined,
           }))
         : [{ product_barcode: "", product_name: "", qty: 1 }]
     );
@@ -674,7 +684,9 @@ export default function MarketingPage() {
               Upload a CSV with one row per item. Rows sharing the same{" "}
               <span className="font-mono font-semibold">package_id</span> become one shipment with multiple
               products. Use <span className="font-mono font-semibold">request_purpose</span> for internal
-              event/campaign tracking (not printed on labels).
+              event/campaign tracking (not printed on labels). Optional{" "}
+              <span className="font-mono font-semibold">rsp</span> per line overrides the product catalog
+              for insurance value; leave blank to use the catalog RSP when a barcode is set.
             </p>
 
             <div className="flex flex-wrap gap-2 mb-6">
@@ -922,6 +934,11 @@ export default function MarketingPage() {
                                 >
                                   <span className="font-medium">{hit.clean_name}</span>
                                   <span className="text-gray-600 ml-2 font-mono text-xs">{hit.barcode}</span>
+                                  {hit.rsp != null && hit.rsp > 0 && (
+                                    <span className="text-violet-700 ml-2 text-xs font-semibold">
+                                      RSP {hit.rsp.toLocaleString("id-ID")}
+                                    </span>
+                                  )}
                                 </button>
                               </li>
                             ))}

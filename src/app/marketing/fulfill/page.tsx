@@ -521,6 +521,11 @@ export default function MarketingFulfillPage() {
               onSelectRequest={handleNotificationSelect}
             />
             <MarketingNewOrdersBadge count={totalUnseen} />
+            <Link href="/marketing/products">
+              <DashButton variant="secondary" size="sm">
+                Products
+              </DashButton>
+            </Link>
             <div className="text-sm font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
               {pendingCount} pending
             </div>
