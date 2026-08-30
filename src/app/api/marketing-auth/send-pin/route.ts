@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import { getSiteUrl } from "../../../../lib/siteUrl";
 import { supabase } from "../../../../lib/supabaseClient";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (!error && data) {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+      const siteUrl = getSiteUrl(request);
       const text = [
         `Hi ${data.display_name},`,
         "",

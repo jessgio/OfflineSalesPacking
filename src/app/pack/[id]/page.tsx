@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { needsCartonPlanning } from "../../../lib/sociolla/cartonPlan";
+import { finalizePurchaseOrderStatus } from "../../../lib/purchaseOrdersDb";
 import { DashButton } from "../../../components/dashboard/primitives";
 import {
   fetchAllPoBoxContentsForPo,
@@ -33,6 +34,47 @@ import {
   type PoBoxRow,
   type PoBoxStats,
 } from "../../../lib/poBoxesDb";
+
+type PackProgressItem = { barcode: string; inner_boxes: number; is_short: boolean };
+
+function computePackProgress(
+  items: PackProgressItem[],
+  securedCountByProductBarcode: Record<string, number>,
+  opts: {
+    cartonPackMode: boolean;
+    onDemandBoxes: boolean;
+    boxStats: PoBoxStats | null;
+    boxes: PoBoxRow[];
+  }
+) {
+  let effectiveCartonTarget = 0;
+  let effectiveCartonScanned = 0;
+
+  if (opts.cartonPackMode) {
+    if (opts.onDemandBoxes && opts.boxStats) {
+      effectiveCartonTarget = opts.boxStats.totalBoxes;
+      effectiveCartonScanned = opts.boxStats.scannedTotal;
+    } else {
+      effectiveCartonTarget = opts.boxes.length;
+      effectiveCartonScanned = opts.boxes.filter((b) => b.is_scanned).length;
+    }
+  } else {
+    for (const item of items) {
+      const securedForThisItem = securedCountByProductBarcode[item.barcode] ?? 0;
+      if (item.is_short) {
+        effectiveCartonTarget += securedForThisItem;
+      } else {
+        effectiveCartonTarget += item.inner_boxes;
+      }
+      effectiveCartonScanned += securedForThisItem;
+    }
+  }
+
+  const progressPercent =
+    effectiveCartonTarget === 0 ? 0 : Math.round((effectiveCartonScanned / effectiveCartonTarget) * 100);
+  const isOrderFullyPacked = effectiveCartonTarget > 0 && effectiveCartonScanned === effectiveCartonTarget;
+  return { progressPercent, isOrderFullyPacked };
+}
 
 export default function PackStation(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params); 
@@ -142,6 +184,35 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     loadData();
   }, [poId]);
 
+  const cartonPackMode = po?.carton_plan_status === "finalized";
+
+  const packProgress = useMemo(
+    () =>
+      computePackProgress(items, securedCountByProductBarcode, {
+        cartonPackMode,
+        onDemandBoxes,
+        boxStats,
+        boxes,
+      }),
+    [items, securedCountByProductBarcode, cartonPackMode, onDemandBoxes, boxStats, boxes]
+  );
+
+  useEffect(() => {
+    if (!po || !isClaimed) return;
+    if (po.status === "Completed" || po.status === "Partial Fulfillment") return;
+    if (!packProgress.isOrderFullyPacked) return;
+
+    const hasShortages = items.some((i) => i.is_short);
+
+    void finalizePurchaseOrderStatus(po.id, hasShortages).then((result) => {
+      if ("error" in result) {
+        setFeedback({ message: `❌ Could not mark order complete: ${result.error}`, type: "error" });
+        return;
+      }
+      setPo((prev: typeof po) => (prev ? { ...prev, status: result.status } : prev));
+    });
+  }, [po, isClaimed, packProgress.isOrderFullyPacked, items]);
+
   useEffect(() => {
     const keepFocus = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -202,8 +273,6 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
     setPo({ ...po, packed_by: cleanedName });
     setIsClaimed(true);
   };
-
-  const cartonPackMode = po?.carton_plan_status === "finalized";
 
   const pendingLinesForBox = (boxId: string) =>
     boxContents.filter((c) => c.po_box_id === boxId && c.scanned_qty < c.qty);
@@ -541,37 +610,17 @@ export default function PackStation(props: { params: Promise<{ id: string }> }) 
   };
 
   const handleFinishAndPrint = async () => {
-    const hasShortages = items.some(i => i.is_short);
-    await supabase.from("purchase_orders").update({ status: hasShortages ? "Partial Fulfillment" : "Completed" }).eq("id", po.id);
-    setPo({ ...po, status: hasShortages ? "Partial Fulfillment" : "Completed" });
+    const hasShortages = items.some((i) => i.is_short);
+    const result = await finalizePurchaseOrderStatus(po.id, hasShortages);
+    if ("error" in result) {
+      setFeedback({ message: `❌ Could not mark order complete: ${result.error}`, type: "error" });
+      return;
+    }
+    setPo({ ...po, status: result.status });
     window.print();
   };
 
-  let effectiveCartonTarget = 0;
-  let effectiveCartonScanned = 0;
-
-  if (cartonPackMode) {
-    if (onDemandBoxes && boxStats) {
-      effectiveCartonTarget = boxStats.totalBoxes;
-      effectiveCartonScanned = boxStats.scannedTotal;
-    } else {
-      effectiveCartonTarget = boxes.length;
-      effectiveCartonScanned = boxes.filter((b) => b.is_scanned).length;
-    }
-  } else {
-    items.forEach((item) => {
-      const securedForThisItem = securedCountByProductBarcode[item.barcode] ?? 0;
-      if (item.is_short) {
-        effectiveCartonTarget += securedForThisItem;
-      } else {
-        effectiveCartonTarget += item.inner_boxes;
-      }
-      effectiveCartonScanned += securedForThisItem;
-    });
-  }
-
-  const progressPercent = effectiveCartonTarget === 0 ? 0 : Math.round((effectiveCartonScanned / effectiveCartonTarget) * 100);
-  const isOrderFullyPacked = effectiveCartonTarget > 0 && effectiveCartonScanned === effectiveCartonTarget;
+  const { progressPercent, isOrderFullyPacked } = packProgress;
   const isHistorical = po?.status === "Completed" || po?.status === "Partial Fulfillment";
 
   if (!po) return <div className="p-8 text-center"><Loader2 className="animate-spin w-8 h-8 mx-auto text-blue-500" /></div>;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isLarkConfigured, sendLarkNewRequestAlert } from "../../../../lib/larkNotify";
+import { getSiteUrl } from "../../../../lib/siteUrl";
 import { supabase } from "../../../../lib/supabaseClient";
 
 function formatItemSummary(
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Request is not pending" }, { status: 400 });
     }
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    const siteUrl = getSiteUrl(request);
     const fulfillUrl = `${siteUrl}/marketing/fulfill`;
     const purpose = pkg.request_purpose?.trim() || "—";
     const items = (pkg.marketing_request_items ?? []) as Array<{

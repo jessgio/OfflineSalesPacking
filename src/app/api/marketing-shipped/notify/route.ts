@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isLarkConfigured, sendLarkShippedAlert } from "../../../../lib/larkNotify";
+import { getSiteUrl } from "../../../../lib/siteUrl";
 import { supabase } from "../../../../lib/supabaseClient";
 
 export async function POST(request: Request) {
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Package is not shipped" }, { status: 400 });
     }
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    const siteUrl = getSiteUrl(request);
     const marketingUrl = `${siteUrl}/marketing`;
     const purpose = pkg.request_purpose?.trim() || "—";
 

@@ -1,8 +1,27 @@
 import { supabase } from "./supabaseClient";
+import { getSupabaseErrorMessage } from "./supabaseError";
 
 export const DASHBOARD_PO_PAGE_SIZE = 24;
 
 export const COMPLETED_PO_STATUSES = ["Completed", "Partial Fulfillment"] as const;
+
+export type CompletedPoStatus = (typeof COMPLETED_PO_STATUSES)[number];
+
+export function resolveCompletedPoStatus(hasShortages: boolean): CompletedPoStatus {
+  return hasShortages ? "Partial Fulfillment" : "Completed";
+}
+
+export async function finalizePurchaseOrderStatus(
+  poId: string,
+  hasShortages: boolean
+): Promise<{ status: CompletedPoStatus } | { error: string }> {
+  const status = resolveCompletedPoStatus(hasShortages);
+  const { error } = await supabase.from("purchase_orders").update({ status }).eq("id", poId);
+  if (error) {
+    return { error: getSupabaseErrorMessage(error, "Failed to update PO status") };
+  }
+  return { status };
+}
 
 const DASHBOARD_PO_COLUMNS =
   "id, po_number, retailer_name, status, po_date, delivery_date, packed_by, carton_plan_status, total_items, created_at";

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isLarkConfigured, sendLarkDailySummary } from "../../../lib/larkNotify";
+import { getSiteUrl } from "../../../lib/siteUrl";
 import { supabase } from "../../../lib/supabaseClient";
 import OpenAI from "openai";
 import { Resend } from "resend";
@@ -9,17 +10,28 @@ const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
   defaultHeaders: {
-    "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "https://aerisbeaute.com",
+    "HTTP-Referer": getSiteUrl(),
     "X-Title": "Aeris WMS Dashboard"
   }
 });
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+/** Paused — set to true and restore the vercel.json cron (`0 17 * * *` → `/api/daily-summary`) to resume. */
+const DAILY_FULFILLMENT_REPORTS_ENABLED = false;
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}` && process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!DAILY_FULFILLMENT_REPORTS_ENABLED) {
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      message: "Daily fulfillment reports are paused (email and Lark).",
+    });
   }
 
   try {

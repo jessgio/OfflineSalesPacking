@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { isLarkConfigured, sendLarkMarketingChat } from "../../../../lib/larkNotify";
+import { getSiteUrl } from "../../../../lib/siteUrl";
 import { supabase } from "../../../../lib/supabaseClient";
 import { mentionHandleFromEmail, parseMentionedEmails } from "../../../../lib/marketingMentions";
 import { canFulfill, normalizeUserRole } from "../../../../lib/marketingRoles";
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, emailed: 0, larkSent: false });
     }
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    const siteUrl = getSiteUrl(request);
     const marketingUrl = `${siteUrl}/marketing`;
     const fulfillUrl = `${siteUrl}/marketing/fulfill`;
     const purposeLine = `Event / purpose: ${pkg.request_purpose?.trim() || "—"}`;
